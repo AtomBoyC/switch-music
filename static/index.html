@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Switch Music · Spotify 歌单迁移至 YouTube Music</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --bg-card: #131822;
+      --bg-card-hover: #19202e;
+      --bg-input: #0e121a;
+      --border: #252e3f;
+      --text: #eef2f6;
+      --text-muted: #8b96a9;
+      --spotify: #1db954;
+      --spotify-dim: rgba(29, 185, 84, 0.14);
+      --ytm: #ff0033;
+      --ytm-dim: rgba(255, 0, 51, 0.14);
+      --accent: #3b82f6;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+      background: radial-gradient(circle at 15% 0%, rgba(29, 185, 84, 0.12), transparent 35%),
+                  radial-gradient(circle at 85% 0%, rgba(255, 0, 51, 0.12), transparent 35%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+      padding-bottom: 60px;
+    }
+
+    .container {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 28px 20px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--spotify), var(--ytm));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .status-badges {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+    }
+
+    .badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+
+    .badge.ok .dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* Step Grid */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .step-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: inline-flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 18px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 7px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn.active {
+      background: var(--bg-card-hover);
+      color: var(--text);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+
+    /* Form Controls */
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select,
+    textarea {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 13.5px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    textarea {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 110px;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 9px 18px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-ytm {
+      background: var(--ytm);
+      color: #fff;
+    }
+    .btn-ytm:hover:not(:disabled) {
+      filter: brightness(1.12);
+    }
+
+    .btn-spotify {
+      background: var(--spotify);
+      color: #061309;
+    }
+    .btn-spotify:hover:not(:disabled) {
+      filter: brightness(1.08);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+    }
+
+    /* Guide Accordion */
+    details.guide {
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 14px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    details.guide summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+      user-select: none;
+    }
+
+    details.guide ol {
+      margin-top: 10px;
+      padding-left: 20px;
+    }
+
+    details.guide li {
+      margin-bottom: 5px;
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    /* Dropzone */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 28px 20px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.015);
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--spotify);
+      background: var(--spotify-dim);
+    }
+
+    .dropzone h4 {
+      font-size: 15px;
+      margin-bottom: 6px;
+    }
+
+    .dropzone p {
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+
+    /* Track Table */
+    .table-wrap {
+      max-height: 310px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-top: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 9px 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #171e2b;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 12px;
+      z-index: 1;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Progress Section */
+    .progress-bar-outer {
+      width: 100%;
+      height: 12px;
+      background: var(--bg-input);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin: 12px 0;
+    }
+
+    .progress-bar-inner {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--spotify), var(--ytm));
+      transition: width 0.25s ease;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .stat-box {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .stat-box .num {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .stat-box .lbl {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .pill-ok {
+      background: rgba(16, 185, 129, 0.16);
+      color: #34d399;
+    }
+
+    .pill-fail {
+      background: rgba(239, 68, 68, 0.16);
+      color: #f87171;
+    }
+
+    .alert {
+      padding: 10px 14px;
+      border-radius: 9px;
+      font-size: 13px;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .alert.show {
+      display: block;
+    }
+
+    .alert-info {
+      background: rgba(59, 130, 246, 0.14);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+
+    .alert-error {
+      background: rgba(239, 68, 68, 0.14);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+    }
+
+    .alert-success {
+      background: rgba(16, 185, 129, 0.14);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #6ee7b7;
+    }
+
+    /* Duplicate Groups Picker */
+    .dup-groups-wrap {
+      max-height: 440px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 10px;
+      padding-right: 4px;
+    }
+
+    .dup-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.015);
+      overflow: hidden;
+    }
+
+    .dup-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 13px;
+      background: #171e2b;
+      border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .dup-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+
+    .dup-row:last-child {
+      border-bottom: none;
+    }
+
+    .dup-row.marked-remove {
+      background: rgba(239, 68, 68, 0.06);
+    }
+
+    .dup-row.marked-keep {
+      background: rgba(16, 185, 129, 0.04);
+    }
+
+    .btn-mini {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+
+    .btn-mini:hover {
+      background: rgba(59, 130, 246, 0.22);
+      border-color: rgba(59, 130, 246, 0.5);
+      color: #93c5fd;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⇄</div>
+        <div>
+          <h1>Switch Music</h1>
+          <p>本地无限制歌单迁移工具 · Spotify → YouTube Music</p>
+        </div>
+      </div>
+      <div class="status-badges">
+        <div id="ytmBadge" class="badge">
+          <span class="dot"></span>
+          <span id="ytmBadgeText">YouTube Music: 检测中...</span>
+        </div>
+        <div id="spBadge" class="badge">
+          <span class="dot"></span>
+          <span id="spBadgeText">Spotify: 支持 CSV / OAuth</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- STEP 1: YouTube Music Connection -->
+    <section class="card">
+      <div class="card-header">
+        <div class="step-title">
+          <span class="step-num">1</span>
+          <span>连接目标账号：YouTube Music</span>
+        </div>
+        <button id="toggleYtmBoxBtn" class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px; display: none;" onclick="toggleYtmSetup()">
+          更新认证请求头
+        </button>
+      </div>
+
+      <div id="ytmSetupBox">
+        <details class="guide" open>
+          <summary>💡 如何用 15 秒获取 YouTube Music 连接信息？（点击展开/收起）</summary>
+          <ol>
+            <li>在浏览器中打开并登录 <a href="https://music.youtube.com" target="_blank" style="color: #60a5fa;">music.youtube.com</a>，打开右侧开发者工具的 <strong>Network (网络)</strong> 面板。</li>
+            <li><strong>让列表出现请求</strong>：直接点击页面上的任意分类标签（例如 <code>Relax</code>、<code>Podcasts</code>），或者清空 Filter 搜索框后按 <code>Cmd + R</code> 刷新页面。</li>
+            <li>在右侧 Name 列表中找到任意一条 <code>music.youtube.com</code> 的请求（例如 <code>browse?...</code>、<code>music.youtube.com</code> 或 <code>log_event?...</code>），<strong>右键点击它 → Copy → Copy as cURL</strong>。</li>
+            <li>粘贴到下方输入框并点击「验证并保存连接」即可！（也支持粘贴 <code>cookies.txt</code> 或 Cookie JSON）</li>
+          </ol>
+        </details>
+
+        <textarea id="ytmHeadersInput" placeholder="在此粘贴右键 Copy → Copy as cURL 的内容（或 Request Headers / cookies.txt）"></textarea>
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+          <button id="saveYtmBtn" class="btn btn-ytm" onclick="saveYtmAuth()">验证并保存 YouTube Music 连接</button>
+          <span id="ytmAuthMsg" style="font-size: 13px; color: var(--text-muted);"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 2: Load Spotify Source Tracks -->
+    <section class="card">
+      <div class="card-header">
+        <div class="step-title">
+          <span class="step-num">2</span>
+          <span>选择迁移源：Spotify 歌单 / 我喜欢的音乐</span>
+        </div>
+        <span id="loadedCounter" style="font-size: 13px; color: var(--spotify); font-weight: 600;">尚未加载曲目</span>
+      </div>
+
+      <div class="tabs">
+        <button id="tabCsvBtn" class="tab-btn active" onclick="switchSourceTab('csv')">📂 方式 A：上传 Exportify CSV 文件（免配置最快）</button>
+        <button id="tabOauthBtn" class="tab-btn" onclick="switchSourceTab('oauth')">🔐 方式 B：Spotify OAuth 授权直连</button>
+      </div>
+
+      <!-- Tab A: CSV Upload -->
+      <div id="sourceTabCsv">
+        <details class="guide">
+          <summary>💡 如何一键导出 Spotify「我喜欢的音乐 (Liked Songs)」或私密歌单为 CSV？</summary>
+          <ol>
+            <li>打开开源免费的网页工具 <a href="https://exportify.net/" target="_blank" style="color: #34d399; font-weight: 600;">exportify.net</a> 并点击 Get Started 登录你的 Spotify。</li>
+            <li>你会看到所有的私密歌单以及顶部的 <strong>Liked Songs (我喜欢的音乐)</strong>，点击右侧 <strong>Export</strong> 即可下载 <code>.csv</code> 文件。</li>
+            <li>将下载的一个或多个 <code>.csv</code> 文件拖入下方区域即可直接解析所有歌曲！</li>
+          </ol>
+        </details>
+
+        <div id="csvDropzone" class="dropzone" onclick="document.getElementById('csvFileInput').click()">
+          <input type="file" id="csvFileInput" accept=".csv" multiple style="display: none" onchange="handleCsvFiles(this.files)" />
+          <h4>📥 点击选择或将 Spotify CSV 歌单文件拖拽至此</h4>
+          <p>支持 Exportify 导出的单个或多个 .csv 文件（无曲目数量上限）</p>
+        </div>
+      </div>
+
+      <!-- Tab B: Spotify OAuth -->
+      <div id="sourceTabOauth" style="display: none;">
+        <details class="guide">
+          <summary>💡 如何获取 Spotify 开发者 Client ID & Secret？</summary>
+          <ol>
+            <li>访问 <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: #34d399;">Spotify Developer Dashboard</a> 并点击 <strong>Create app</strong>。</li>
+            <li>在 <strong>Redirect URIs</strong> 中填入：<code>http://127.0.0.1:8765/api/spotify/callback</code> 并保存。</li>
+            <li>进入 App 的 Settings，复制 <strong>Client ID</strong> 和 <strong>Client Secret</strong> 填入下方。</li>
+          </ol>
+        </details>
+
+        <div class="row">
+          <div>
+            <label>Spotify Client ID</label>
+            <input type="text" id="spClientId" placeholder="输入你的 Spotify Client ID" />
+          </div>
+          <div>
+            <label>Spotify Client Secret</label>
+            <input type="password" id="spClientSecret" placeholder="输入你的 Spotify Client Secret" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-spotify" onclick="saveSpotifyConfigAndLogin()">保存并前往 Spotify 授权登录</button>
+          <button id="fetchSpPlaylistsBtn" class="btn btn-secondary" onclick="loadSpotifyPlaylists()" style="display: none;">🔄 刷新我的 Spotify 歌单列表</button>
+        </div>
+
+        <div id="spPlaylistsBox" style="margin-top: 16px; display: none;">
+          <label>选择要读取的歌单或「我喜欢的音乐」：</label>
+          <div style="display: flex; gap: 10px;">
+            <select id="spPlaylistSelect"></select>
+            <button class="btn btn-spotify" style="white-space: nowrap;" onclick="fetchSelectedSpotifyPlaylist()">加载该歌单曲目</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="sourceAlert" class="alert"></div>
+
+      <!-- Loaded Track Preview -->
+      <div id="trackPreviewSection" style="display: none; margin-top: 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div style="font-size: 13.5px; font-weight: 600;">
+            已加载待迁移歌曲（共 <span id="previewCount">0</span> 首）
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; border-color: rgba(29, 185, 84, 0.45); color: #6ee7b7;" onclick="scanLoadedTracksDuplicates()">🧹 检查 / 选择重复项</button>
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="clearLoadedTracks()">清空列表</button>
+          </div>
+        </div>
+
+        <!-- Source Duplicate Group Selector -->
+        <div id="sourceDedupeBox" style="display: none; margin: 14px 0; padding: 14px; border: 1px solid rgba(29, 185, 84, 0.35); border-radius: 11px; background: rgba(29, 185, 84, 0.04);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+            <div style="font-size: 13px; font-weight: 600; color: #6ee7b7;">
+              🔍 发现 <span id="srcDupGroupCount">0</span> 组重复曲目（可自由勾选要删除哪一首，或点「改为只留这首」一键切换）
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="btn-mini" onclick="applySourceGroupPreset('keep_first')">保留每组第 1 首</button>
+              <button class="btn-mini" onclick="applySourceGroupPreset('keep_last')">保留每组最后 1 首</button>
+              <button class="btn-mini" onclick="document.getElementById('sourceDedupeBox').style.display='none'">收起</button>
+            </div>
+          </div>
+          <div id="sourceDupGroupsContainer" class="dup-groups-wrap" style="max-height: 300px;"></div>
+          <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+            <button id="confirmSrcRemoveBtn" class="btn btn-spotify" style="padding: 7px 16px; font-size: 13px;" onclick="confirmRemoveSourceDuplicates()">
+              🗑️ 从待迁移列表移除已勾选 (<span id="selectedSrcDupCount">0</span> 首)
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>歌曲标题 (Title)</th>
+                <th>歌手 (Artist)</th>
+                <th>专辑 (Album)</th>
+              </tr>
+            </thead>
+            <tbody id="trackPreviewTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 3: Target Settings & Start Migration -->
+    <section class="card">
+      <div class="card-header">
+        <div class="step-title">
+          <span class="step-num">3</span>
+          <span>配置迁移方式并启动导入</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>导入目标模式</label>
+          <select id="targetModeSelect" onchange="onTargetModeChange()">
+            <option value="new_playlist">✨ 在 YouTube Music 中新建歌单（推荐）</option>
+            <option value="existing_playlist">➕ 追加到现有的 YouTube Music 歌单</option>
+            <option value="liked_songs">❤️ 直接加入 YouTube Music「我喜欢的音乐 (Liked Music)」</option>
+          </select>
+        </div>
+
+        <div id="newPlaylistPrivacyCol">
+          <label>新建歌单隐私设置</label>
+          <select id="privacySelect">
+            <option value="PRIVATE">🔒 私密 (Private - 仅自己可见)</option>
+            <option value="UNLISTED">🔗 不公开 (Unlisted - 知道链接的人可见)</option>
+            <option value="PUBLIC">🌍 公开 (Public)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="newPlaylistMetaRow" class="row">
+        <div>
+          <label>新建歌单名称</label>
+          <input type="text" id="playlistTitleInput" value="My Spotify Playlist" />
+        </div>
+        <div>
+          <label>歌单简介 (可选)</label>
+          <input type="text" id="playlistDescInput" value="Imported from Spotify via Switch Music" />
+        </div>
+      </div>
+
+      <div id="existingPlaylistRow" style="display: none; margin-bottom: 14px;">
+        <label>选择现有的 YouTube Music 歌单</label>
+        <div style="display: flex; gap: 10px;">
+          <select id="existingYtmPlaylistSelect"></select>
+          <button class="btn btn-secondary" style="white-space: nowrap;" onclick="loadYtmPlaylists()">🔄 刷新列表</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: var(--text);">
+          <input type="checkbox" id="skipDuplicatesCheckbox" checked style="width: 16px; height: 16px; accent-color: var(--spotify);" />
+          <span>导入歌单时自动跳过重复歌曲（防止同一首歌曲重复添加到歌单）</span>
+        </label>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; margin-top: 10px;">
+        <button id="startMigrateBtn" class="btn btn-ytm" style="padding: 11px 24px; font-size: 14.5px;" onclick="startMigration()">
+          🚀 开始迁移到 YouTube Music
+        </button>
+        <button id="cancelMigrateBtn" class="btn btn-danger" style="display: none;" onclick="cancelMigration()">
+          停止任务
+        </button>
+      </div>
+
+      <div id="migrateErrorAlert" class="alert alert-error"></div>
+
+      <!-- Progress Box -->
+      <div id="migrationProgressBox" style="display: none; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13.5px;">
+          <span id="jobStatusLabel" style="font-weight: 600;">正在匹配并导入歌曲...</span>
+          <span id="jobPercentLabel" style="color: var(--text-muted);">0%</span>
+        </div>
+
+        <div class="progress-bar-outer">
+          <div id="jobProgressBar" class="progress-bar-inner"></div>
+        </div>
+
+        <div style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px;">
+          当前处理：<span id="currentTrackLabel" style="color: var(--text);">-</span>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div id="statTotal" class="num">0</div>
+            <div class="lbl">总计曲目</div>
+          </div>
+          <div class="stat-box">
+            <div id="statDone" class="num">0</div>
+            <div class="lbl">已处理</div>
+          </div>
+          <div class="stat-box">
+            <div id="statMatched" class="num" style="color: var(--success);">0</div>
+            <div class="lbl">成功匹配导入</div>
+          </div>
+          <div class="stat-box">
+            <div id="statUnmatched" class="num" style="color: var(--danger);">0</div>
+            <div class="lbl">未找到匹配</div>
+          </div>
+        </div>
+
+        <div id="jobDoneActions" style="display: none; margin: 14px 0; gap: 10px; flex-wrap: wrap;">
+          <a id="openYtmPlaylistLink" href="https://music.youtube.com/library/playlists" target="_blank" class="btn btn-ytm">
+            🎵 在 YouTube Music 中打开该歌单
+          </a>
+          <button id="retryUnmatchedBtn" class="btn btn-secondary" style="display: none;" onclick="loadUnmatchedForRetry()">
+            🔄 将未匹配的歌曲重新载入列表
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>Spotify 原曲</th>
+                <th>状态</th>
+                <th>YouTube Music 匹配结果</th>
+              </tr>
+            </thead>
+            <tbody id="jobResultsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 4: Standalone YouTube Music Playlist Deduplicator -->
+    <section class="card">
+      <div class="card-header">
+        <div class="step-title">
+          <span class="step-num">🧹</span>
+          <span>歌单去重清理工具（扫描并清理任意 YouTube Music 歌单中的重复曲目）</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>选择要检查的 YouTube Music 歌单</label>
+          <div style="display: flex; gap: 8px;">
+            <select id="dedupePlaylistSelect">
+              <option value="">-- 请先连接 YouTube Music 或点击刷新 --</option>
+            </select>
+            <button class="btn btn-secondary" style="white-space: nowrap;" onclick="loadYtmPlaylists(true)">🔄 刷新</button>
+          </div>
+        </div>
+
+        <div>
+          <label>去重识别模式</label>
+          <select id="dedupeModeSelect">
+            <option value="standard">✨ 标准模式（推荐：相同歌曲 ID + 同名同歌手/简繁体）</option>
+            <option value="strict">🔒 严格模式（仅限完全相同的 YouTube Music 歌曲 ID）</option>
+            <option value="deep">🔍 深度模式（包含同名且时长相差 ≤3 秒的中英译名版本）</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <button id="scanDupBtn" class="btn btn-secondary" style="border-color: rgba(59, 130, 246, 0.5); color: #93c5fd;" onclick="scanYtmDuplicates()">
+          🔍 扫描重复曲目
+        </button>
+        <span id="dedupeHintText" style="font-size: 12.5px; color: var(--text-muted);">扫描后会按「重复组」列出同组每一首歌，你可以自由勾选删除哪一首，或点击「🔄 改为只留这首」一键切换保留版本！</span>
+      </div>
+
+      <div id="dedupeAlert" class="alert"></div>
+
+      <div id="dedupeResultBox" style="display: none; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="stat-box">
+            <div id="dupStatTotal" class="num">0</div>
+            <div class="lbl">歌单当前总曲目</div>
+          </div>
+          <div class="stat-box">
+            <div id="dupStatUnique" class="num" style="color: var(--success);">0</div>
+            <div class="lbl">去重后预计保留</div>
+          </div>
+          <div class="stat-box">
+            <div id="dupStatFound" class="num" style="color: var(--warning);">0</div>
+            <div class="lbl">发现重复组数</div>
+          </div>
+        </div>
+
+        <div id="dedupeTableArea" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 8px;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="applyYtmGroupPreset('keep_first')">保留每组第 1 首（默认）</button>
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="applyYtmGroupPreset('keep_last')">保留每组最后 1 首</button>
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="applyYtmGroupPreset('exact_only')">仅删「完全相同 ID」</button>
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="applyYtmGroupPreset('none')">取消全选</button>
+            </div>
+            <button id="removeDupBtn" class="btn btn-ytm" onclick="removeSelectedYtmDuplicates()">
+              🗑️ 一键从歌单移除已勾选 (<span id="selectedDupCount">0</span> 首)
+            </button>
+          </div>
+
+          <div id="ytmDupGroupsContainer" class="dup-groups-wrap"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let loadedTracks = [];
+    let currentJobId = null;
+    let pollTimer = null;
+    let lastUnmatchedTracks = [];
+    let scannedYtmGroups = [];
+    let scannedPlaylistTotal = 0;
+    let scannedPlaylistId = '';
+    let scannedSourceGroups = [];
+
+    window.addEventListener('DOMContentLoaded', () => {
+      checkYtmStatus();
+      checkSpotifyStatus();
+      setupDragAndDrop();
+    });
+
+    function showAlert(elId, type, text) {
+      const el = document.getElementById(elId);
+      el.className = `alert alert-${type} show`;
+      el.textContent = text;
+    }
+
+    function hideAlert(elId) {
+      const el = document.getElementById(elId);
+      el.className = 'alert';
+    }
+
+    // --- 1. YouTube Music Auth ---
+    async function checkYtmStatus() {
+      try {
+        const res = await fetch('/api/ytm/status');
+        const data = await res.json();
+        const badge = document.getElementById('ytmBadge');
+        const txt = document.getElementById('ytmBadgeText');
+        if (data.connected) {
+          badge.classList.add('ok');
+          txt.textContent = 'YouTube Music: 已连接';
+          document.getElementById('ytmSetupBox').style.display = 'none';
+          document.getElementById('toggleYtmBoxBtn').style.display = 'inline-flex';
+          loadYtmPlaylists(false);
+        } else {
+          badge.classList.remove('ok');
+          txt.textContent = 'YouTube Music: 未连接';
+          document.getElementById('ytmSetupBox').style.display = 'block';
+          document.getElementById('toggleYtmBoxBtn').style.display = 'none';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function toggleYtmSetup() {
+      const box = document.getElementById('ytmSetupBox');
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function saveYtmAuth() {
+      const raw = document.getElementById('ytmHeadersInput').value.trim();
+      const msg = document.getElementById('ytmAuthMsg');
+      const btn = document.getElementById('saveYtmBtn');
+      if (!raw) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '请先粘贴请求头或 Copy as cURL 内容';
+        return;
+      }
+      btn.disabled = true;
+      msg.style.color = 'var(--text-muted)';
+      msg.textContent = '正在验证连接...';
+      try {
+        const res = await fetch('/api/ytm/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ headers_raw: raw })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '验证失败');
+        msg.style.color = 'var(--success)';
+        msg.textContent = '✅ ' + data.message;
+        await checkYtmStatus();
+      } catch (err) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadYtmPlaylists(showError = true) {
+      try {
+        const res = await fetch('/api/ytm/playlists');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '获取失败');
+        const playlists = data.playlists || [];
+        ['existingYtmPlaylistSelect', 'dedupePlaylistSelect'].forEach(selId => {
+          const sel = document.getElementById(selId);
+          if (!sel) return;
+          const prevVal = sel.value;
+          sel.innerHTML = '';
+          if (playlists.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '-- 暂无歌单 --';
+            sel.appendChild(opt);
+            return;
+          }
+          playlists.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.playlistId;
+            opt.textContent = `${p.title} (${p.count || 0} 首)`;
+            sel.appendChild(opt);
+          });
+          if (prevVal && playlists.some(p => p.playlistId === prevVal)) {
+            sel.value = prevVal;
+          }
+        });
+      } catch (err) {
+        if (showError) alert(err.message);
+      }
+    }
+
+    // --- 2. Spotify Source (CSV & OAuth) ---
+    function switchSourceTab(tab) {
+      document.getElementById('tabCsvBtn').classList.toggle('active', tab === 'csv');
+      document.getElementById('tabOauthBtn').classList.toggle('active', tab === 'oauth');
+      document.getElementById('sourceTabCsv').style.display = tab === 'csv' ? 'block' : 'none';
+      document.getElementById('sourceTabOauth').style.display = tab === 'oauth' ? 'block' : 'none';
+    }
+
+    function setupDragAndDrop() {
+      const dz = document.getElementById('csvDropzone');
+      dz.addEventListener('dragover', e => {
+        e.preventDefault();
+        dz.classList.add('dragover');
+      });
+      dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+      dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleCsvFiles(e.dataTransfer.files);
+        }
+      });
+    }
+
+    async function handleCsvFiles(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      hideAlert('sourceAlert');
+      const formData = new FormData();
+      for (const f of fileList) {
+        formData.append('files', f);
+      }
+      try {
+        const res = await fetch('/api/spotify/parse-csv', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'CSV 解析失败');
+        setLoadedTracks(data.tracks, data.playlist_name);
+        showAlert('sourceAlert', 'success', `✅ 成功从 CSV 解析出 ${data.count} 首歌曲！`);
+      } catch (err) {
+        showAlert('sourceAlert', 'error', '❌ ' + err.message);
+      }
+    }
+
+    async function checkSpotifyStatus() {
+      try {
+        const res = await fetch('/api/spotify/status');
+        const data = await res.json();
+        if (data.client_id) {
+          document.getElementById('spClientId').value = data.client_id;
+        }
+        const badge = document.getElementById('spBadge');
+        const txt = document.getElementById('spBadgeText');
+        if (data.authenticated) {
+          badge.classList.add('ok');
+          txt.textContent = `Spotify: 已登录 (${data.user_name})`;
+          document.getElementById('fetchSpPlaylistsBtn').style.display = 'inline-flex';
+          loadSpotifyPlaylists();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function saveSpotifyConfigAndLogin() {
+      const cid = document.getElementById('spClientId').value.trim();
+      const sec = document.getElementById('spClientSecret').value.trim();
+      if (!cid || !sec) {
+        showAlert('sourceAlert', 'error', '请填写 Spotify Client ID 和 Client Secret');
+        return;
+      }
+      try {
+        const res = await fetch('/api/spotify/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: cid, client_secret: sec })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '保存失败');
+        if (data.auth_url) {
+          window.location.href = data.auth_url;
+        }
+      } catch (err) {
+        showAlert('sourceAlert', 'error', '❌ ' + err.message);
+      }
+    }
+
+    async function loadSpotifyPlaylists() {
+      try {
+        const res = await fetch('/api/spotify/playlists');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '拉取失败');
+        const box = document.getElementById('spPlaylistsBox');
+        const sel = document.getElementById('spPlaylistSelect');
+        sel.innerHTML = '';
+        (data.playlists || []).forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.tracks_total} 首)`;
+          sel.appendChild(opt);
+        });
+        box.style.display = 'block';
+      } catch (err) {
+        showAlert('sourceAlert', 'error', '❌ ' + err.message);
+      }
+    }
+
+    async function fetchSelectedSpotifyPlaylist() {
+      const pid = document.getElementById('spPlaylistSelect').value;
+      if (!pid) return;
+      showAlert('sourceAlert', 'info', '正在从 Spotify 读取歌单曲目，请稍候...');
+      try {
+        const res = await fetch(`/api/spotify/playlist/${encodeURIComponent(pid)}/tracks`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '读取歌单曲目失败');
+        setLoadedTracks(data.tracks, data.playlist_name);
+        showAlert('sourceAlert', 'success', `✅ 成功读取「${data.playlist_name}」，共 ${data.count} 首歌曲！`);
+      } catch (err) {
+        showAlert('sourceAlert', 'error', '❌ ' + err.message);
+      }
+    }
+
+    function setLoadedTracks(tracks, suggestedName) {
+      loadedTracks = tracks || [];
+      document.getElementById('loadedCounter').textContent = `已就绪 ${loadedTracks.length} 首歌曲`;
+      document.getElementById('previewCount').textContent = loadedTracks.length;
+      if (suggestedName) {
+        document.getElementById('playlistTitleInput').value = suggestedName;
+      }
+      const tbody = document.getElementById('trackPreviewTbody');
+      tbody.innerHTML = '';
+      loadedTracks.slice(0, 300).forEach((t, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="color: var(--text-muted);">${i + 1}</td>
+          <td style="font-weight: 600;">${escapeHtml(t.title)}</td>
+          <td>${escapeHtml(t.artist)}</td>
+          <td style="color: var(--text-muted);">${escapeHtml(t.album || '')}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      if (loadedTracks.length > 300) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="4" style="text-align:center; color: var(--text-muted);">... 仅预览前 300 首，其余 ${loadedTracks.length - 300} 首将在迁移时完整导入 ...</td>`;
+        tbody.appendChild(tr);
+      }
+      document.getElementById('trackPreviewSection').style.display = loadedTracks.length > 0 ? 'block' : 'none';
+    }
+
+    async function scanLoadedTracksDuplicates() {
+      if (!loadedTracks || loadedTracks.length === 0) return;
+      try {
+        const res = await fetch('/api/tracks/deduplicate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'standard', tracks: loadedTracks })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '检测重复失败');
+        const groups = data.groups || [];
+        if (groups.length === 0) {
+          document.getElementById('sourceDedupeBox').style.display = 'none';
+          showAlert('sourceAlert', 'info', '🎉 当前待迁移列表中没有检测到重复曲目！');
+        } else {
+          scannedSourceGroups = groups.map(g => ({
+            ...g,
+            items: g.items.map(it => ({ ...it, selectedRemove: !!it.default_remove }))
+          }));
+          document.getElementById('srcDupGroupCount').textContent = scannedSourceGroups.length;
+          document.getElementById('sourceDedupeBox').style.display = 'block';
+          renderSourceDuplicateGroups();
+          hideAlert('sourceAlert');
+        }
+      } catch (err) {
+        showAlert('sourceAlert', 'error', '❌ ' + err.message);
+      }
+    }
+
+    function formatMs(ms) {
+      if (!ms || ms <= 0) return '';
+      const sec = Math.floor(ms / 1000);
+      const m = Math.floor(sec / 60);
+      const s = String(sec % 60).padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    function renderSourceDuplicateGroups() {
+      const container = document.getElementById('sourceDupGroupsContainer');
+      container.innerHTML = '';
+      let totalSelected = 0;
+
+      scannedSourceGroups.forEach((g, gIdx) => {
+        const allChecked = g.items.every(it => it.selectedRemove);
+        const div = document.createElement('div');
+        div.className = 'dup-group';
+
+        let rowsHtml = '';
+        g.items.forEach((it, iIdx) => {
+          if (it.selectedRemove) totalSelected++;
+          const dur = formatMs(it.duration_ms);
+          rowsHtml += `
+            <div class="dup-row ${it.selectedRemove ? 'marked-remove' : 'marked-keep'}">
+              <input
+                type="checkbox"
+                ${it.selectedRemove ? 'checked' : ''}
+                onchange="toggleSrcItemRemove(${gIdx}, ${iIdx}, this.checked)"
+                title="勾选表示删除该首"
+                style="width: 16px; height: 16px; accent-color: var(--danger); cursor: pointer;"
+              />
+              <span class="pill ${it.selectedRemove ? 'pill-fail' : 'pill-ok'}" style="min-width: 58px; text-align: center;">
+                ${it.selectedRemove ? '🗑️ 删除' : '✅ 保留'}
+              </span>
+              <span style="color: var(--text-muted); font-weight: 600; min-width: 42px;">#${it.position}</span>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 600;">${escapeHtml(it.title)}</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  ${escapeHtml(it.artist)}${it.album ? ' · 专辑: ' + escapeHtml(it.album) : ''}${dur ? ' · ' + dur : ''}
+                </div>
+              </div>
+              ${it.selectedRemove
+                ? `<button class="btn-mini" onclick="keepOnlyThisInSourceGroup(${gIdx}, ${iIdx})">🔄 改为只留这首</button>`
+                : `<span style="font-size: 11.5px; color: var(--text-muted);">当前保留</span>`
+              }
+            </div>
+          `;
+        });
+
+        div.innerHTML = `
+          <div class="dup-group-header">
+            <span>第 ${gIdx + 1} 组重复（共 ${g.items.length} 首） · ${escapeHtml(g.reason)}</span>
+            ${allChecked ? '<span style="color: var(--warning);">⚠️ 注意：该组全部被勾选，将整组移除</span>' : ''}
+          </div>
+          ${rowsHtml}
+        `;
+        container.appendChild(div);
+      });
+
+      document.getElementById('selectedSrcDupCount').textContent = totalSelected;
+      document.getElementById('confirmSrcRemoveBtn').disabled = totalSelected === 0;
+    }
+
+    function toggleSrcItemRemove(gIdx, iIdx, checked) {
+      scannedSourceGroups[gIdx].items[iIdx].selectedRemove = checked;
+      renderSourceDuplicateGroups();
+    }
+
+    function keepOnlyThisInSourceGroup(gIdx, keepIdx) {
+      scannedSourceGroups[gIdx].items.forEach((it, idx) => {
+        it.selectedRemove = (idx !== keepIdx);
+      });
+      renderSourceDuplicateGroups();
+    }
+
+    function applySourceGroupPreset(preset) {
+      scannedSourceGroups.forEach(g => {
+        const last = g.items.length - 1;
+        g.items.forEach((it, idx) => {
+          if (preset === 'keep_first') it.selectedRemove = (idx !== 0);
+          else if (preset === 'keep_last') it.selectedRemove = (idx !== last);
+        });
+      });
+      renderSourceDuplicateGroups();
+    }
+
+    function confirmRemoveSourceDuplicates() {
+      const toRemoveIndices = new Set();
+      scannedSourceGroups.forEach(g => {
+        g.items.forEach(it => {
+          if (it.selectedRemove) toRemoveIndices.add(it.track_index);
+        });
+      });
+      if (toRemoveIndices.size === 0) return;
+      const remaining = loadedTracks.filter((_, idx) => !toRemoveIndices.has(idx));
+      document.getElementById('sourceDedupeBox').style.display = 'none';
+      setLoadedTracks(remaining);
+      showAlert('sourceAlert', 'success', `🧹 已按你的选择移除 ${toRemoveIndices.size} 首重复歌曲，当前保留 ${remaining.length} 首！`);
+    }
+
+    function clearLoadedTracks() {
+      loadedTracks = [];
+      document.getElementById('loadedCounter').textContent = '尚未加载曲目';
+      document.getElementById('trackPreviewSection').style.display = 'none';
+      document.getElementById('sourceDedupeBox').style.display = 'none';
+      hideAlert('sourceAlert');
+    }
+
+    // --- 3. Target Mode & Migration ---
+    function onTargetModeChange() {
+      const mode = document.getElementById('targetModeSelect').value;
+      document.getElementById('newPlaylistMetaRow').style.display = mode === 'new_playlist' ? 'grid' : 'none';
+      document.getElementById('newPlaylistPrivacyCol').style.display = mode === 'new_playlist' ? 'block' : 'none';
+      document.getElementById('existingPlaylistRow').style.display = mode === 'existing_playlist' ? 'block' : 'none';
+      if (mode === 'existing_playlist') {
+        loadYtmPlaylists();
+      }
+    }
+
+    async function startMigration() {
+      hideAlert('migrateErrorAlert');
+      if (!loadedTracks || loadedTracks.length === 0) {
+        showAlert('migrateErrorAlert', 'error', '请先在第 2 步上传 CSV 歌单或从 Spotify 加载歌曲列表！');
+        return;
+      }
+
+      const targetMode = document.getElementById('targetModeSelect').value;
+      const payload = {
+        target_mode: targetMode,
+        playlist_title: document.getElementById('playlistTitleInput').value.trim() || 'My Spotify Playlist',
+        playlist_description: document.getElementById('playlistDescInput').value.trim(),
+        privacy_status: document.getElementById('privacySelect').value,
+        existing_playlist_id: document.getElementById('existingYtmPlaylistSelect').value || null,
+        skip_duplicates: document.getElementById('skipDuplicatesCheckbox').checked,
+        tracks: loadedTracks
+      };
+
+      document.getElementById('startMigrateBtn').disabled = true;
+      document.getElementById('cancelMigrateBtn').style.display = 'inline-flex';
+      document.getElementById('jobDoneActions').style.display = 'none';
+
+      try {
+        const res = await fetch('/api/migrate/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '启动任务失败');
+
+        currentJobId = data.job_id;
+        document.getElementById('migrationProgressBox').style.display = 'block';
+        pollJobStatus();
+      } catch (err) {
+        showAlert('migrateErrorAlert', 'error', '❌ ' + err.message);
+        document.getElementById('startMigrateBtn').disabled = false;
+        document.getElementById('cancelMigrateBtn').style.display = 'none';
+      }
+    }
+
+    async function pollJobStatus() {
+      if (!currentJobId) return;
+      try {
+        const res = await fetch(`/api/migrate/status/${currentJobId}`);
+        const job = await res.json();
+        if (!res.ok) throw new Error(job.detail || '获取进度失败');
+
+        renderJobProgress(job);
+
+        if (job.status === 'running') {
+          pollTimer = setTimeout(pollJobStatus, 800);
+        } else {
+          document.getElementById('startMigrateBtn').disabled = false;
+          document.getElementById('cancelMigrateBtn').style.display = 'none';
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderJobProgress(job) {
+      const pct = job.total > 0 ? Math.round((job.current_index / job.total) * 100) : 0;
+      document.getElementById('jobPercentLabel').textContent = `${pct}% (${job.current_index}/${job.total})`;
+      document.getElementById('jobProgressBar').style.width = `${pct}%`;
+      document.getElementById('currentTrackLabel').textContent = job.current_track || '-';
+
+      document.getElementById('statTotal').textContent = job.total;
+      document.getElementById('statDone').textContent = job.current_index;
+      document.getElementById('statMatched').textContent = job.matched_count;
+      document.getElementById('statUnmatched').textContent = job.unmatched_count;
+
+      const statusLabel = document.getElementById('jobStatusLabel');
+      if (job.status === 'running') {
+        statusLabel.textContent = '⏳ 正在匹配并导入歌曲到 YouTube Music...';
+        statusLabel.style.color = 'var(--text)';
+      } else if (job.status === 'completed') {
+        statusLabel.textContent = '🎉 歌单迁移已完成！';
+        statusLabel.style.color = 'var(--success)';
+      } else if (job.status === 'cancelled') {
+        statusLabel.textContent = '⏹ 迁移任务已手动停止';
+        statusLabel.style.color = 'var(--warning)';
+      } else if (job.status === 'failed') {
+        statusLabel.textContent = `❌ 迁移出错：${job.error || ''}`;
+        statusLabel.style.color = 'var(--danger)';
+      }
+
+      if (job.status !== 'running') {
+        const actions = document.getElementById('jobDoneActions');
+        actions.style.display = 'flex';
+        const link = document.getElementById('openYtmPlaylistLink');
+        if (job.target_playlist_id) {
+          link.href = `https://music.youtube.com/playlist?list=${encodeURIComponent(job.target_playlist_id)}`;
+        } else {
+          link.href = 'https://music.youtube.com/library/playlists';
+        }
+
+        lastUnmatchedTracks = job.unmatched_tracks || [];
+        document.getElementById('retryUnmatchedBtn').style.display = lastUnmatchedTracks.length > 0 ? 'inline-flex' : 'none';
+      }
+
+      const tbody = document.getElementById('jobResultsTbody');
+      tbody.innerHTML = '';
+      const reversed = [...(job.results || [])].reverse();
+      reversed.forEach(r => {
+        const tr = document.createElement('tr');
+        const ok = r.status === 'matched';
+        tr.innerHTML = `
+          <td style="color: var(--text-muted);">${r.index}</td>
+          <td>
+            <div style="font-weight: 600;">${escapeHtml(r.source_title)}</div>
+            <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(r.source_artist)}</div>
+          </td>
+          <td>
+            <span class="pill ${ok ? 'pill-ok' : 'pill-fail'}">${ok ? '已导入' : '未匹配'}</span>
+          </td>
+          <td>
+            ${ok
+              ? `<a href="https://music.youtube.com/watch?v=${encodeURIComponent(r.ytm_video_id)}" target="_blank" style="color: #93c5fd; text-decoration: none; font-weight: 500;">${escapeHtml(r.ytm_title)}</a>
+                 <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(r.ytm_artist)} · ${escapeHtml(r.ytm_duration || '')}</div>`
+              : `<span style="color: var(--text-muted); font-size: 12px;">未搜索到对应曲目</span>`
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function cancelMigration() {
+      if (!currentJobId) return;
+      await fetch(`/api/migrate/cancel/${currentJobId}`, { method: 'POST' });
+    }
+
+    function loadUnmatchedForRetry() {
+      if (!lastUnmatchedTracks.length) return;
+      setLoadedTracks(lastUnmatchedTracks, document.getElementById('playlistTitleInput').value + ' (Retry)');
+      window.scrollTo({ top: 300, behavior: 'smooth' });
+    }
+
+    // --- 4. YouTube Music Playlist Deduplication Tool ---
+    async function scanYtmDuplicates() {
+      const pid = document.getElementById('dedupePlaylistSelect').value;
+      const mode = document.getElementById('dedupeModeSelect').value;
+      if (!pid) {
+        showAlert('dedupeAlert', 'error', '请先在上方下拉框中选择一个要检查的 YouTube Music 歌单（或先点击「刷新」加载歌单）！');
+        return;
+      }
+
+      hideAlert('dedupeAlert');
+      const btn = document.getElementById('scanDupBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 正在读取歌单并分析...';
+
+      try {
+        const res = await fetch(`/api/ytm/playlist/${encodeURIComponent(pid)}/duplicates?mode=${encodeURIComponent(mode)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '扫描歌单失败');
+
+        scannedPlaylistId = pid;
+        scannedPlaylistTotal = data.total_tracks || 0;
+        const rawGroups = data.groups || [];
+        scannedYtmGroups = rawGroups.map(g => ({
+          ...g,
+          items: g.items.map(it => ({
+            ...it,
+            selectedRemove: Boolean(it.default_remove && it.can_remove)
+          }))
+        }));
+
+        document.getElementById('dedupeResultBox').style.display = 'block';
+        document.getElementById('dupStatTotal').textContent = scannedPlaylistTotal;
+        document.getElementById('dupStatFound').textContent = scannedYtmGroups.length;
+
+        if (scannedYtmGroups.length === 0) {
+          document.getElementById('dupStatUnique').textContent = scannedPlaylistTotal;
+          document.getElementById('dedupeTableArea').style.display = 'none';
+          showAlert('dedupeAlert', 'success', `🎉 扫描完成！「${data.playlist_title}」共有 ${data.total_tracks} 首歌，没有发现任何重复曲目。`);
+        } else {
+          document.getElementById('dedupeTableArea').style.display = 'block';
+          renderYtmDuplicateGroups();
+          showAlert('dedupeAlert', 'info', `🔍 在「${data.playlist_title}」中共发现 ${scannedYtmGroups.length} 组重复曲目。你可以自由勾选想删除哪一首，或点「🔄 改为只留这首」一键切换！`);
+        }
+      } catch (err) {
+        showAlert('dedupeAlert', 'error', '❌ ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 扫描重复曲目';
+      }
+    }
+
+    function renderYtmDuplicateGroups() {
+      const container = document.getElementById('ytmDupGroupsContainer');
+      container.innerHTML = '';
+      let totalSelected = 0;
+
+      scannedYtmGroups.forEach((g, gIdx) => {
+        const badgeStyle = g.reason_code === 'exact_id'
+          ? 'background: rgba(239, 68, 68, 0.18); color: #fca5a5;'
+          : 'background: rgba(245, 158, 11, 0.18); color: #fcd34d;';
+        const allChecked = g.items.every(it => it.selectedRemove);
+
+        let rowsHtml = '';
+        g.items.forEach((it, iIdx) => {
+          if (it.selectedRemove) totalSelected++;
+          rowsHtml += `
+            <div class="dup-row ${it.selectedRemove ? 'marked-remove' : 'marked-keep'}">
+              <input
+                type="checkbox"
+                ${it.selectedRemove ? 'checked' : ''}
+                ${it.can_remove ? '' : 'disabled'}
+                onchange="toggleYtmItemRemove(${gIdx}, ${iIdx}, this.checked)"
+                title="勾选表示从歌单删除此首"
+                style="width: 16px; height: 16px; accent-color: var(--ytm); cursor: pointer;"
+              />
+              <span class="pill ${it.selectedRemove ? 'pill-fail' : 'pill-ok'}" style="min-width: 58px; text-align: center;">
+                ${it.selectedRemove ? '🗑️ 删除' : '✅ 保留'}
+              </span>
+              <span style="color: var(--text-muted); font-weight: 600; min-width: 44px;">#${it.position}</span>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span>${escapeHtml(it.title)}</span>
+                  ${it.videoId
+                    ? `<a href="https://music.youtube.com/watch?v=${encodeURIComponent(it.videoId)}" target="_blank" style="font-size: 11.5px; color: #93c5fd; text-decoration: none; font-weight: 500;">▶ 试听</a>`
+                    : ''
+                  }
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  ${escapeHtml(it.artist)}${it.album ? ' · 专辑: ' + escapeHtml(it.album) : ''}${it.duration ? ' · ' + escapeHtml(it.duration) : ''}
+                </div>
+              </div>
+              ${it.selectedRemove
+                ? `<button class="btn-mini" onclick="keepOnlyThisInYtmGroup(${gIdx}, ${iIdx})">🔄 改为只留这首</button>`
+                : `<span style="font-size: 11.5px; color: #6ee7b7; font-weight: 600;">当前保留</span>`
+              }
+            </div>
+          `;
+        });
+
+        const div = document.createElement('div');
+        div.className = 'dup-group';
+        div.innerHTML = `
+          <div class="dup-group-header">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span>第 ${gIdx + 1} 组重复（共 ${g.items.length} 首）</span>
+              <span class="pill" style="${badgeStyle}">${escapeHtml(g.reason)}</span>
+            </div>
+            ${allChecked ? '<span style="color: var(--warning);">⚠️ 注意：该组全部被勾选，将整组删除</span>' : ''}
+          </div>
+          ${rowsHtml}
+        `;
+        container.appendChild(div);
+      });
+
+      document.getElementById('selectedDupCount').textContent = totalSelected;
+      document.getElementById('dupStatUnique').textContent = Math.max(0, scannedPlaylistTotal - totalSelected);
+      document.getElementById('removeDupBtn').disabled = totalSelected === 0;
+    }
+
+    function toggleYtmItemRemove(gIdx, iIdx, checked) {
+      const it = scannedYtmGroups[gIdx].items[iIdx];
+      if (!it.can_remove) return;
+      it.selectedRemove = checked;
+      renderYtmDuplicateGroups();
+    }
+
+    function keepOnlyThisInYtmGroup(gIdx, keepIdx) {
+      scannedYtmGroups[gIdx].items.forEach((it, idx) => {
+        if (it.can_remove) {
+          it.selectedRemove = (idx !== keepIdx);
+        } else {
+          it.selectedRemove = false;
+        }
+      });
+      renderYtmDuplicateGroups();
+    }
+
+    function applyYtmGroupPreset(preset) {
+      scannedYtmGroups.forEach(g => {
+        const last = g.items.length - 1;
+        g.items.forEach((it, idx) => {
+          if (!it.can_remove) {
+            it.selectedRemove = false;
+            return;
+          }
+          if (preset === 'keep_first') {
+            it.selectedRemove = (idx !== 0);
+          } else if (preset === 'keep_last') {
+            it.selectedRemove = (idx !== last);
+          } else if (preset === 'exact_only') {
+            it.selectedRemove = (idx !== 0 && it.reason_code === 'exact_id');
+          } else if (preset === 'none') {
+            it.selectedRemove = false;
+          }
+        });
+      });
+      renderYtmDuplicateGroups();
+    }
+
+    async function removeSelectedYtmDuplicates() {
+      const items = [];
+      scannedYtmGroups.forEach(g => {
+        g.items.forEach(it => {
+          if (it.selectedRemove && it.videoId && it.setVideoId) {
+            items.push({ videoId: it.videoId, setVideoId: it.setVideoId });
+          }
+        });
+      });
+      if (items.length === 0 || !scannedPlaylistId) return;
+
+      const btn = document.getElementById('removeDupBtn');
+      btn.disabled = true;
+      const origHtml = btn.innerHTML;
+      btn.textContent = '⏳ 正在从歌单移除...';
+
+      try {
+        const res = await fetch(`/api/ytm/playlist/${encodeURIComponent(scannedPlaylistId)}/remove-duplicates`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '移除失败');
+
+        showAlert('dedupeAlert', 'success', `✅ 已成功从歌单移除 ${data.removed_count} 首你选中的重复歌曲！正在刷新扫描结果...`);
+        await loadYtmPlaylists(false);
+        await scanYtmDuplicates();
+      } catch (err) {
+        showAlert('dedupeAlert', 'error', '❌ ' + err.message);
+        btn.innerHTML = origHtml;
+        renderYtmDuplicateGroups();
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

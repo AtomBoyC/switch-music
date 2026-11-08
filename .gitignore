@@ -1,0 +1,21 @@
+# Local credentials, cookies, OAuth cache & migration logs (NEVER commit!)
+data/
+*browser.json
+*oauth.json
+*spotify_config.json
+.spotify_cache
+*.cache
+.env
+
+# Python virtual environment & bytecode
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# macOS & IDE files
+.DS_Store
+.idea/
+.vscode/

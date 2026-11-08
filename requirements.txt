@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+ytmusicapi
+spotipy
+python-multipart
+requests
