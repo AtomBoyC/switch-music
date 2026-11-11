@@ -711,17 +711,20 @@ class QQMusicProvider(PlatformProvider):
         target_mode: str = "existing_playlist",
     ) -> Set[str]:
         ids: Set[str] = set()
+        # Errors propagate: silently returning an empty set would disable duplicate protection.
+        pid = "liked_songs" if target_mode == "liked_songs" else (playlist_id or "")
+        if not pid:
+            return ids
         try:
-            pid = "liked_songs" if target_mode == "liked_songs" else (playlist_id or "")
-            if not pid:
-                return ids
             data = self.get_playlist_tracks(pid)
-            for t in data.get("tracks") or []:
-                ex = t.get("extra") or {}
-                if ex.get("songId"):
-                    ids.add(str(ex["songId"]))
-        except Exception:
-            pass
+        except ValueError as exc:
+            if "未能从该 QQ 音乐歌单读取到曲目" in str(exc):
+                return ids  # genuinely empty playlist
+            raise
+        for t in data.get("tracks") or []:
+            ex = t.get("extra") or {}
+            if ex.get("songId"):
+                ids.add(str(ex["songId"]))
         return ids
 
     @staticmethod

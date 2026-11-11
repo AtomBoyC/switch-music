@@ -155,11 +155,15 @@ class TestSwitchMusicCore(unittest.TestCase):
             with patch.object(app_module.ytm_provider, "get_status", return_value={"connected": False}), \
                  patch.object(app_module.spotify_provider, "get_status", return_value={"connected": False}), \
                  patch.object(app_module.netease_provider, "get_status", return_value={"connected": False}), \
-                 patch.object(app_module.qqmusic_provider, "get_status", return_value={"connected": False}):
+                 patch.object(app_module.qqmusic_provider, "get_status", return_value={"connected": False}), \
+                 patch.object(app_module.kugou_provider, "get_status", return_value={"connected": False}), \
+                 patch.object(app_module.applemusic_provider, "get_status", return_value={"connected": False}):
                 r_st = client.get("/api/platforms/status")
                 self.assertEqual(r_st.status_code, 200)
                 plats = r_st.json()["platforms"]
-                self.assertEqual(set(plats.keys()), {"ytm", "spotify", "netease", "qqmusic"})
+                self.assertEqual(
+                    set(plats.keys()), {"ytm", "spotify", "netease", "qqmusic", "kugou", "applemusic"}
+                )
 
             r_txt = client.post("/api/import/text", json={"text": "晴天 - 周杰伦\n七里香 - 周杰伦", "playlist_name": "测试"})
             self.assertEqual(r_txt.status_code, 200)
@@ -512,6 +516,107 @@ class TestReliabilityAndSecurity(unittest.TestCase):
             self.assertEqual([t["title"] for t in job["pending_tracks"]], ["S2", "S3", "S4"])
             history = read_json_file(tmp_path / "history.json", [])
             self.assertEqual(history[0]["status"], "interrupted")
+
+    def test_existing_ids_failure_aborts_instead_of_hanging(self):
+        """Reading the target playlist for duplicate protection fails -> job fails cleanly, nothing written."""
+        import tempfile
+        import time as _time
+        from contextlib import ExitStack
+        from pathlib import Path
+        from backend import migration_engine
+        from backend.models import MigrationRequest
+        from backend.providers.base import PlatformProvider
+
+        written = []
+
+        class ExpiredLoginProvider(PlatformProvider):
+            platform_id = "netease"
+            platform_name = "网易云音乐"
+
+            def get_status(self):
+                return {"platform": "netease", "connected": True}
+
+            def get_existing_track_ids(self, playlist_id, target_mode="existing_playlist"):
+                raise PermissionError("cookie expired")
+
+            def add_tracks(self, playlist_id, target_mode, candidates, seen_ids, skip_duplicates=True):
+                written.extend(candidates)
+                return len(candidates)
+
+        with tempfile.TemporaryDirectory() as tmpdir, ExitStack() as stack:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "jobs").mkdir()
+            for p in self._isolated_paths(tmp_path):
+                stack.enter_context(p)
+            stack.enter_context(patch("backend.migration_engine.get_provider", return_value=ExpiredLoginProvider()))
+            req = MigrationRequest(
+                source_platform="csv", target_platform="netease", target_mode="existing_playlist",
+                existing_playlist_id="pl_9", use_cache=False,
+                tracks=[{"title": f"S{i}", "artist": "A"} for i in range(3)],
+            )
+            jid = migration_engine.start_migration_job(req)
+            for _ in range(100):
+                job = migration_engine.get_job(jid)
+                if job["status"] != "running":
+                    break
+                _time.sleep(0.05)
+            self.assertEqual(job["status"], "failed")
+            self.assertIn("cookie expired", job["error"])
+            self.assertEqual(job["pending_count"], 3)
+            self.assertEqual(written, [])
+            _time.sleep(0.3)  # let the worker finish its final checkpoint before the temp dir is removed
+
+
+class TestKugouAndAppleMusic(unittest.TestCase):
+    def test_platform_detection(self):
+        self.assertEqual(detect_platform_from_url("https://www.kugou.com/songlist/gcid_3z15kqlufz87z048/"), "kugou")
+        self.assertEqual(detect_platform_from_url("collection_3_2132029040_287_0"), "kugou")
+        self.assertEqual(detect_platform_from_url("https://music.apple.com/cn/playlist/x/pl.abc123"), "applemusic")
+        self.assertEqual(detect_platform_from_url("https://apple.co/3xyz"), "applemusic")
+
+    def test_kugou_gcid_decoding(self):
+        from backend.providers.kugou import decode_kugou_gcid
+
+        # Verified against kugou.com pages (share code -> global_collection_id)
+        self.assertEqual(decode_kugou_gcid("gcid_3z15kqlufz87z048"), "collection_3_2132029040_287_0")
+        self.assertEqual(decode_kugou_gcid("gcid_3z15kqv21zi8z0a3"), "collection_3_2132040296_638_0")
+        self.assertEqual(decode_kugou_gcid("gcid_3zmhxisrz4tz089"), "collection_3_1182429807_169_0")
+        self.assertIsNone(decode_kugou_gcid("gcid_bogus"))
+
+    def test_kugou_signature_and_parsing(self):
+        import hashlib
+        from backend.providers.kugou import KugouProvider, _split_kugou_name, kugou_android_signature
+
+        params = {"b": 2, "a": "x", "clienttime": 100}
+        expected = hashlib.md5(
+            b"OIlwieks28dk2k092lksi2UIkpa=xb=2clienttime=100{\"k\":1}OIlwieks28dk2k092lksi2UIkp"
+        ).hexdigest()
+        self.assertEqual(kugou_android_signature(params, '{"k":1}'), expected)
+
+        self.assertEqual(_split_kugou_name("周杰伦 - 晴天", "周杰伦"), ("晴天", "周杰伦"))
+        self.assertEqual(_split_kugou_name("A - B - C", ""), ("B - C", "A"))
+
+        self.assertEqual(KugouProvider._extract_token_userid('{"token": "abc123", "userid": 42}'), ("abc123", "42"))
+        tok, uid = KugouProvider._extract_token_userid("KuGoo=KugooID=778899&t=deadbeef&a_id=1014")
+        self.assertEqual((tok, uid), ("deadbeef", "778899"))
+        self.assertEqual(KugouProvider._parse_compound_id("lid_5|gid_collection_3_1_5_0"), (5, "collection_3_1_5_0"))
+
+    def test_apple_music_url_parsing(self):
+        from backend.providers.applemusic import AppleMusicProvider
+
+        p = AppleMusicProvider._parse_url
+        self.assertEqual(
+            p("https://music.apple.com/cn/playlist/%E7%B2%BE%E9%80%89/pl.f4d106fed2bd41149aaacabb233eb5eb"),
+            ("playlist", "pl.f4d106fed2bd41149aaacabb233eb5eb", "cn"),
+        )
+        # Album named with digits must not be mistaken for the album id
+        self.assertEqual(
+            p("https://music.apple.com/us/album/1989/1440935467?i=1440935471"), ("album", "1440935467", "us")
+        )
+        self.assertEqual(p("https://music.apple.com/library/playlist/p.AbCdEf123"), ("library_playlist", "p.AbCdEf123", ""))
+        self.assertEqual(p("pl.u-AbCd123"), ("playlist", "pl.u-AbCd123", ""))
+        with self.assertRaises(ValueError):
+            p("https://example.com/nothing")
 
 
 if __name__ == "__main__":

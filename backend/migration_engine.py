@@ -234,7 +234,6 @@ def _run_preview_worker(job_id: str, req: PreviewMatchRequest, concurrency: int)
     job = migration_jobs[job_id]
     try:
         provider = get_provider(req.target_platform)
-        total = len(req.tracks)
         completed_map: Dict[int, Optional[Dict[str, Any]]] = {}
         next_commit = 0
         commit_lock = threading.Lock()
@@ -384,7 +383,19 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
     existing_ids: Set[str] = set()
     if req.skip_duplicates and req.target_mode in ("existing_playlist", "liked_songs"):
         job["current_track"] = "正在读取目标歌单已有曲目用于防重..."
-        existing_ids = provider.get_existing_track_ids(target_playlist_id, req.target_mode)
+        try:
+            existing_ids = provider.get_existing_track_ids(target_playlist_id, req.target_mode)
+        except Exception as e:
+            # Never leave the job stuck in "running", and never silently write without
+            # duplicate protection: stop here so the user can fix the login and retry.
+            job["status"] = "failed"
+            job["error"] = (
+                f"读取目标歌单已有曲目失败（为避免重复写入已中止，尚未写入任何曲目）: {str(e) or e.__class__.__name__}"
+            )
+            _attach_pending_tracks(job, req.tracks)
+            job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            _save_job_to_disk(job)
+            return
 
     seen_write_ids: Set[str] = set(existing_ids)
     batch_buffer: List[Tuple[int, Dict[str, Any]]] = []

@@ -256,20 +256,18 @@ class YTMProvider(PlatformProvider):
     ) -> Set[str]:
         ytm = self.get_client(require_auth=True)
         ids: Set[str] = set()
-        try:
-            if target_mode == "liked_songs":
-                liked = ytm.get_liked_songs(limit=2000)
-                for t in (liked or {}).get("tracks") or []:
-                    if t and t.get("videoId"):
-                        ids.add(t["videoId"])
-            elif playlist_id:
-                clean_pid = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
-                pl = ytm.get_playlist(clean_pid, limit=None)
-                for t in (pl or {}).get("tracks") or []:
-                    if t and t.get("videoId"):
-                        ids.add(t["videoId"])
-        except Exception:
-            pass
+        # Errors propagate: silently returning an empty set would disable duplicate protection.
+        if target_mode == "liked_songs":
+            liked = ytm.get_playlist("LM", limit=None)
+            for t in (liked or {}).get("tracks") or []:
+                if t and t.get("videoId"):
+                    ids.add(t["videoId"])
+        elif playlist_id:
+            clean_pid = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
+            pl = ytm.get_playlist(clean_pid, limit=None)
+            for t in (pl or {}).get("tracks") or []:
+                if t and t.get("videoId"):
+                    ids.add(t["videoId"])
         return ids
 
     def add_tracks(

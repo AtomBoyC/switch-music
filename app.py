@@ -58,8 +58,10 @@ from backend.models import (
 )
 from backend.providers import (
     PROVIDERS,
+    applemusic_provider,
     detect_platform_from_url,
     get_provider,
+    kugou_provider,
     netease_provider,
     qqmusic_provider,
     spotify_provider,
@@ -161,11 +163,35 @@ def platform_save_cookie_auth(platform_id: str, payload: RawAuthPayload):
             return netease_provider.save_auth(raw)
         if platform_id == "qqmusic":
             return qqmusic_provider.save_auth(raw)
+        if platform_id == "kugou":
+            return kugou_provider.save_auth(raw)
+        if platform_id == "applemusic":
+            return applemusic_provider.save_auth(raw)
         raise HTTPException(status_code=400, detail=f"平台 {platform_id} 不使用 Cookie 方式认证。")
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"验证连接失败: {str(e)}")
+
+
+@app.post("/api/platforms/kugou/qrcode")
+def kugou_create_qrcode():
+    try:
+        return kugou_provider.create_login_qrcode()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"生成酷狗登录二维码失败: {str(e)}")
+
+
+@app.get("/api/platforms/kugou/qrcode/{key}")
+def kugou_check_qrcode(key: str):
+    if not re.fullmatch(r"[0-9a-zA-Z]{8,128}", key or ""):
+        raise HTTPException(status_code=400, detail="无效的二维码 key")
+    try:
+        return kugou_provider.check_login_qrcode(key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"检查扫码状态失败: {str(e)}")
 
 
 @app.post("/api/platforms/{platform_id}/disconnect")

@@ -23,7 +23,7 @@ class SpotifyConfigPayload(BaseModel):
 
 
 class UrlImportPayload(BaseModel):
-    platform: str = "auto"  # "auto" | "netease" | "qqmusic" | "ytm" | "spotify"
+    platform: str = "auto"  # "auto" | "netease" | "qqmusic" | "kugou" | "applemusic" | "ytm" | "spotify"
     url_or_id: str
 
 
@@ -54,7 +54,7 @@ class PreviewMatchRequest(BaseModel):
 
 class MigrationRequest(BaseModel):
     source_platform: str = "spotify"
-    target_platform: str = "ytm"  # "ytm" | "spotify" | "netease" | "qqmusic"
+    target_platform: str = "ytm"  # "ytm" | "spotify" | "netease" | "qqmusic" | "kugou" | "applemusic"
     target_mode: str = "new_playlist"  # "new_playlist" | "existing_playlist" | "liked_songs"
     playlist_title: Optional[str] = "My Imported Playlist"
     playlist_description: Optional[str] = "Imported via Switch Music"

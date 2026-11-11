@@ -23,6 +23,10 @@ SPOTIFY_CONFIG_FILE = DATA_DIR / "spotify_config.json"
 SPOTIFY_CACHE_FILE = DATA_DIR / ".spotify_cache"
 NETEASE_AUTH_FILE = DATA_DIR / "netease_auth.json"
 QQMUSIC_AUTH_FILE = DATA_DIR / "qqmusic_auth.json"
+KUGOU_AUTH_FILE = DATA_DIR / "kugou_auth.json"
+KUGOU_DEVICE_FILE = DATA_DIR / "kugou_device.json"
+APPLEMUSIC_AUTH_FILE = DATA_DIR / "applemusic_auth.json"
+APPLEMUSIC_TOKEN_CACHE_FILE = DATA_DIR / "applemusic_dev_token.json"
 
 MATCH_CACHE_FILE = DATA_DIR / "match_cache.json"
 HISTORY_FILE = DATA_DIR / "migration_history.json"
@@ -77,6 +81,31 @@ PLATFORM_META: Dict[str, Dict[str, Any]] = {
         "supports_write": True,
         "supports_liked": True,
         "supports_dedupe": True,
+    },
+    "kugou": {
+        "id": "kugou",
+        "name": "酷狗音乐",
+        "short_name": "酷狗",
+        "supports_url_import": True,
+        "supports_oauth": False,
+        "supports_cookie_auth": True,
+        "supports_qr_login": True,
+        "supports_write": True,
+        "supports_liked": True,
+        "supports_dedupe": True,
+    },
+    "applemusic": {
+        "id": "applemusic",
+        "name": "Apple Music",
+        "short_name": "Apple",
+        "supports_url_import": True,
+        "supports_oauth": False,
+        "supports_cookie_auth": True,
+        "supports_write": True,
+        "supports_liked": True,
+        # Apple's API has no endpoint for removing a track from a library playlist:
+        # duplicates can be scanned but have to be removed in the Music app.
+        "supports_dedupe": False,
     },
 }
 

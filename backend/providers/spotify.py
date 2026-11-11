@@ -180,7 +180,8 @@ class SpotifyProvider(PlatformProvider):
                 owner_obj = p.get("owner") or {}
                 owner_id = owner_obj.get("id", "")
                 editable = bool(p.get("collaborative") or (my_id and owner_id == my_id))
-                total = (p.get("tracks") or {}).get("total", 0)
+                # Feb 2026 API: playlist "tracks" field renamed to "items"
+                total = (p.get("items") or p.get("tracks") or {}).get("total", "")
                 name = p.get("name", "Untitled")
                 items.append(
                     {
@@ -224,6 +225,44 @@ class SpotifyProvider(PlatformProvider):
             },
         }
 
+    # ------------------------------------------------------------------
+    # Spotify Web API February 2026 changes (Development-mode apps):
+    #   GET/POST/DELETE /playlists/{id}/tracks  ->  /playlists/{id}/items  (old ones return 403)
+    #   playlist item field "track"             ->  "item"
+    #   POST /users/{id}/playlists              ->  POST /me/playlists
+    #   PUT /me/tracks                          ->  PUT /me/library?uris=... (max 40)
+    #   GET /search limit max 50                ->  max 10
+    # Spotipy's helpers still call the removed endpoints, so we call the new ones directly.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _item_track(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        raw = raw or {}
+        return raw.get("item") or raw.get("track")
+
+    @staticmethod
+    def _iter_playlist_items(sp: spotipy.Spotify, playlist_id: str, fields: Optional[str] = None):
+        offset = 0
+        while True:
+            kwargs: Dict[str, Any] = {"limit": 50, "offset": offset}
+            if fields:
+                kwargs["fields"] = fields
+            try:
+                res = sp._get(f"playlists/{playlist_id}/items", **kwargs)
+            except spotipy.SpotifyException as exc:
+                if exc.http_status == 403:
+                    raise PermissionError(
+                        "Spotify 只允许读取你本人创建或协作的歌单内容（2026 年起开发模式应用的限制）。"
+                        "如需读取他人歌单，请先在 Spotify 中「复制到新歌单」再读取。"
+                    )
+                raise
+            batch = (res or {}).get("items") or []
+            for raw in batch:
+                yield raw
+            if not res or not res.get("next") or not batch:
+                break
+            offset += len(batch)
+
     def get_playlist_tracks(self, playlist_id: str) -> Dict[str, Any]:
         sp = self.get_client(require_write=False)
         tracks: List[Dict[str, Any]] = []
@@ -235,7 +274,7 @@ class SpotifyProvider(PlatformProvider):
                 res = sp.current_user_saved_tracks(limit=50, offset=offset)
                 batch = res.get("items", []) if res else []
                 for item in batch:
-                    parsed = self._parse_sp_track((item or {}).get("track"))
+                    parsed = self._parse_sp_track(self._item_track(item))
                     if parsed:
                         tracks.append(parsed)
                 if not res or not res.get("next") or len(batch) < 50:
@@ -246,17 +285,10 @@ class SpotifyProvider(PlatformProvider):
             if pl_info and pl_info.get("name"):
                 playlist_name = pl_info["name"]
 
-            offset = 0
-            while True:
-                res = sp.playlist_items(playlist_id, limit=100, offset=offset)
-                batch = res.get("items", []) if res else []
-                for item in batch:
-                    parsed = self._parse_sp_track((item or {}).get("track"))
-                    if parsed:
-                        tracks.append(parsed)
-                if not res or not res.get("next") or len(batch) < 100:
-                    break
-                offset += 100
+            for item in self._iter_playlist_items(sp, playlist_id):
+                parsed = self._parse_sp_track(self._item_track(item))
+                if parsed:
+                    tracks.append(parsed)
 
         return {
             "playlist_name": playlist_name,
@@ -307,7 +339,7 @@ class SpotifyProvider(PlatformProvider):
 
     def search_candidates(self, query: str, limit: int = 6) -> List[Dict[str, Any]]:
         sp = self.get_client(require_write=False)
-        res = sp.search(q=query, type="track", limit=limit)
+        res = sp.search(q=query, type="track", limit=max(1, min(10, limit)))
         items = ((res or {}).get("tracks") or {}).get("items") or []
         out = []
         for t in items:
@@ -323,14 +355,14 @@ class SpotifyProvider(PlatformProvider):
         privacy_status: str = "PRIVATE",
     ) -> str:
         sp = self.get_client(require_write=True)
-        me = sp.current_user()
-        user_id = me["id"]
         is_public = privacy_status == "PUBLIC"
-        pl = sp.user_playlist_create(
-            user=user_id,
-            name=title or "Switch Music Playlist",
-            public=is_public,
-            description=description or "Imported via Switch Music",
+        pl = sp._post(
+            "me/playlists",
+            payload={
+                "name": title or "Switch Music Playlist",
+                "public": is_public,
+                "description": description or "Imported via Switch Music",
+            },
         )
         return str(pl["id"])
 
@@ -341,33 +373,24 @@ class SpotifyProvider(PlatformProvider):
     ) -> Set[str]:
         sp = self.get_client(require_write=False)
         ids: Set[str] = set()
-        try:
-            if target_mode == "liked_songs":
-                offset = 0
-                while offset < 2000:
-                    res = sp.current_user_saved_tracks(limit=50, offset=offset)
-                    batch = (res or {}).get("items") or []
-                    for it in batch:
-                        t = (it or {}).get("track") or {}
-                        if t.get("uri"):
-                            ids.add(t["uri"])
-                    if not res or not res.get("next") or len(batch) < 50:
-                        break
-                    offset += 50
-            elif playlist_id:
-                offset = 0
-                while True:
-                    res = sp.playlist_items(playlist_id, limit=100, offset=offset, fields="items(track(uri)),next")
-                    batch = (res or {}).get("items") or []
-                    for it in batch:
-                        t = (it or {}).get("track") or {}
-                        if t.get("uri"):
-                            ids.add(t["uri"])
-                    if not res or not res.get("next") or len(batch) < 100:
-                        break
-                    offset += 100
-        except Exception:
-            pass
+        # Errors propagate: silently returning an empty set would disable duplicate protection.
+        if target_mode == "liked_songs":
+            offset = 0
+            while offset < 50000:
+                res = sp.current_user_saved_tracks(limit=50, offset=offset)
+                batch = (res or {}).get("items") or []
+                for it in batch:
+                    t = self._item_track(it) or {}
+                    if t.get("uri"):
+                        ids.add(t["uri"])
+                if not res or not res.get("next") or len(batch) < 50:
+                    break
+                offset += 50
+        elif playlist_id:
+            for it in self._iter_playlist_items(sp, playlist_id, fields="items(item(uri)),next"):
+                t = self._item_track(it) or {}
+                if t.get("uri"):
+                    ids.add(t["uri"])
         return ids
 
     def add_tracks(
@@ -397,9 +420,9 @@ class SpotifyProvider(PlatformProvider):
 
         added = 0
         if target_mode == "liked_songs":
-            for i in range(0, len(uris), 50):
-                chunk = [u.split(":")[-1] for u in uris[i : i + 50]]
-                sp.current_user_saved_tracks_add(tracks=chunk)
+            for i in range(0, len(uris), 40):
+                chunk = uris[i : i + 40]
+                sp._put("me/library", uris=",".join(chunk))
                 added += len(chunk)
                 time.sleep(0.1)
             return added
@@ -409,7 +432,7 @@ class SpotifyProvider(PlatformProvider):
 
         for i in range(0, len(uris), 100):
             chunk = uris[i : i + 100]
-            sp.playlist_add_items(playlist_id, chunk)
+            sp._post(f"playlists/{playlist_id}/items", payload={"uris": chunk})
             added += len(chunk)
             time.sleep(0.1)
         return added
@@ -422,62 +445,75 @@ class SpotifyProvider(PlatformProvider):
         pl_title = (pl_info or {}).get("name") or "Spotify Playlist"
 
         items: List[Dict[str, Any]] = []
-        offset = 0
         pos = 0
-        while True:
-            res = sp.playlist_items(playlist_id, limit=100, offset=offset)
-            batch = (res or {}).get("items") or []
-            for raw in batch:
-                pos += 1
-                t = (raw or {}).get("track")
-                if not t or t.get("is_local"):
-                    continue
-                uri = t.get("uri") or ""
-                tid = t.get("id") or ""
-                artists_list = [a.get("name", "") for a in (t.get("artists") or []) if a.get("name")]
-                dur_ms = int(t.get("duration_ms") or 0)
-                items.append(
-                    {
-                        "position": pos,
-                        "item_id": uri,
-                        "videoId": uri,
-                        "setVideoId": str(pos - 1),  # 0-based position in Spotify playlist
-                        "can_remove": bool(uri),
-                        "title": t.get("name") or "Unknown",
-                        "artist": ", ".join(artists_list),
-                        "primary_artist": artists_list[0] if artists_list else "",
-                        "album": (t.get("album") or {}).get("name", ""),
-                        "duration": format_duration_ms(dur_ms),
-                        "duration_seconds": dur_ms // 1000,
-                        "url": f"https://open.spotify.com/track/{tid}" if tid else "",
-                        "extra": {"zero_index": pos - 1, "uri": uri},
-                    }
-                )
-            if not res or not res.get("next") or len(batch) < 100:
-                break
-            offset += 100
+        for raw in self._iter_playlist_items(sp, playlist_id):
+            pos += 1
+            t = self._item_track(raw)
+            if not t or t.get("is_local"):
+                continue
+            uri = t.get("uri") or ""
+            tid = t.get("id") or ""
+            artists_list = [a.get("name", "") for a in (t.get("artists") or []) if a.get("name")]
+            dur_ms = int(t.get("duration_ms") or 0)
+            items.append(
+                {
+                    "position": pos,
+                    "item_id": uri,
+                    "videoId": uri,
+                    "setVideoId": str(pos - 1),  # 0-based position in Spotify playlist
+                    "can_remove": bool(uri),
+                    "title": t.get("name") or "Unknown",
+                    "artist": ", ".join(artists_list),
+                    "primary_artist": artists_list[0] if artists_list else "",
+                    "album": (t.get("album") or {}).get("name", ""),
+                    "duration": format_duration_ms(dur_ms),
+                    "duration_seconds": dur_ms // 1000,
+                    "url": f"https://open.spotify.com/track/{tid}" if tid else "",
+                    "extra": {"zero_index": pos - 1, "uri": uri},
+                }
+            )
         return pl_title, items
 
     def remove_playlist_duplicates(self, playlist_id: str, items: List[Dict[str, Any]]) -> int:
+        """
+        The Feb 2026 DELETE /playlists/{id}/items only accepts URIs (no positions) and removes
+        EVERY occurrence of each URI. To delete only the selected copies we:
+          1. re-read the playlist and compute the desired final order,
+          2. delete all occurrences of every affected URI,
+          3. re-insert the copies that should be kept at their exact final positions.
+        """
         sp = self.get_client(require_write=True)
-        by_uri: Dict[str, List[int]] = {}
-        total_positions = 0
+        remove_positions: Set[int] = set()
         for it in items:
-            uri = str(it.get("item_id") or it.get("videoId") or (it.get("extra") or {}).get("uri") or "")
             z_raw = it.get("setVideoId") if it.get("setVideoId") not in (None, "") else (it.get("extra") or {}).get("zero_index")
-            if uri and z_raw is not None and str(z_raw).isdigit():
-                by_uri.setdefault(uri, []).append(int(z_raw))
-                total_positions += 1
-
-        if not by_uri:
+            if z_raw is not None and str(z_raw).isdigit():
+                remove_positions.add(int(z_raw))
+        if not remove_positions:
             raise ValueError("没有可移除的有效 Spotify 曲目位置项。")
 
-        payload = [{"uri": uri, "positions": sorted(set(positions))} for uri, positions in by_uri.items()]
-        # Spotify allows up to 100 item specs per call
-        for i in range(0, len(payload), 100):
-            sp.playlist_remove_specific_occurrences_of_items(playlist_id, payload[i : i + 100])
+        current: List[str] = []
+        for raw in self._iter_playlist_items(sp, playlist_id, fields="items(item(uri)),next"):
+            current.append(str((self._item_track(raw) or {}).get("uri") or ""))
+
+        # Guard against the playlist having changed since the scan.
+        requested = {str(it.get("item_id") or (it.get("extra") or {}).get("uri") or ""): None for it in items}
+        for z in remove_positions:
+            if z >= len(current) or (current[z] not in requested):
+                raise ValueError("Spotify 歌单在扫描后已发生变化，请重新扫描后再移除。")
+
+        affected = sorted({current[z] for z in remove_positions if current[z]})
+        final = [u for i, u in enumerate(current) if i not in remove_positions]
+
+        for i in range(0, len(affected), 100):
+            sp._delete(f"playlists/{playlist_id}/items", payload={"items": [{"uri": u} for u in affected[i : i + 100]]})
             time.sleep(0.15)
-        return total_positions
+
+        affected_set = set(affected)
+        for j, uri in enumerate(final):
+            if uri in affected_set:
+                sp._post(f"playlists/{playlist_id}/items", payload={"uris": [uri], "position": j})
+                time.sleep(0.1)
+        return len(remove_positions)
 
     def build_playlist_url(self, playlist_id: Optional[str], target_mode: str = "new_playlist") -> str:
         if target_mode == "liked_songs" or playlist_id == "liked_songs":

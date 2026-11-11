@@ -5,7 +5,13 @@ const PLATFORM_LABELS = {
   spotify: 'Spotify',
   netease: '网易云音乐',
   qqmusic: 'QQ音乐',
+  kugou: '酷狗音乐',
+  applemusic: 'Apple Music',
 };
+
+// Platforms whose public playlists can be read without logging in.
+const LINK_READ_PLATFORMS = ['netease', 'qqmusic', 'kugou', 'applemusic'];
+const ALL_PLATFORMS = ['ytm', 'spotify', 'netease', 'qqmusic', 'kugou', 'applemusic'];
 
 const COOKIE_GUIDES = {
   ytm: {
@@ -40,6 +46,29 @@ const COOKIE_GUIDES = {
       </ol>
     `,
     btnClass: 'btn-qqmusic',
+  },
+  kugou: {
+    summary: '💡 备选方式：手动粘贴酷狗 token（推荐优先使用上方扫码登录）',
+    html: `
+      <ol>
+        <li>推荐直接使用上方 <strong>「酷狗 App 扫码登录」</strong>，无需任何手动操作。</li>
+        <li>如已通过其他工具（如 KuGouMusicApi）取得客户端登录态，可粘贴 <code>{"token": "...", "userid": 123}</code> JSON 或 <code>token=...; userid=...</code> 到下方。</li>
+        <li>注意：网页版 <code>kugou.com</code> 的 Cookie 一般不能用于客户端歌单接口，验证失败时请改用扫码登录。</li>
+      </ol>
+    `,
+    btnClass: 'btn-kugou',
+  },
+  applemusic: {
+    summary: '💡 30 秒获取 Apple Music 登录态（用于读取资料库歌单 & 创建写入歌单，无需开发者账号）',
+    html: `
+      <ol>
+        <li>用 Chrome / Safari 打开并登录 <a href="https://music.apple.com" target="_blank" style="color:#fb7185;">music.apple.com</a>（需有效的 Apple Music 订阅）。只从公开歌单往外导出时，可免登录直接使用第 1 步「链接直读」。</li>
+        <li>按 F12 打开开发者工具 <strong>Network (网络)</strong> 面板，在左侧点击「资料库 → 歌单」或刷新页面。</li>
+        <li>筛选 <code>amp-api</code>，右键任意一条发往 <code>amp-api.music.apple.com</code> 的请求 → <strong>Copy → Copy as cURL</strong>（需包含 <code>media-user-token</code> 请求头），粘贴到下方保存！</li>
+        <li>说明：该方式使用网页版播放器的非官方接口；Apple 官方接口不支持从歌单中删除单曲，因此 Apple Music 歌单去重仅支持扫描。</li>
+      </ol>
+    `,
+    btnClass: 'btn-applemusic',
   },
 };
 
@@ -150,7 +179,7 @@ async function refreshAllPlatformsStatus(showFeedback = false) {
     const data = await res.json();
     platformStatuses = data.platforms || {};
 
-    ['ytm', 'spotify', 'netease', 'qqmusic'].forEach(pid => {
+    ALL_PLATFORMS.forEach(pid => {
       const st = platformStatuses[pid] || {};
       const card = document.getElementById(`platCard_${pid}`);
       const sub = document.getElementById(`platSub_${pid}`);
@@ -160,7 +189,7 @@ async function refreshAllPlatformsStatus(showFeedback = false) {
         sub.textContent = st.user_name ? `已连接: ${st.user_name}` : '已连接 (点击管理)';
       } else {
         card.classList.remove('connected');
-        sub.textContent = pid === 'netease' || pid === 'qqmusic'
+        sub.textContent = LINK_READ_PLATFORMS.includes(pid)
           ? '未登录 · 支持链接直读'
           : '未连接 · 点击配置';
       }
@@ -212,14 +241,86 @@ function toggleAuthDrawer(plat) {
   } else {
     document.getElementById('spotifyAuthForm').style.display = 'none';
     document.getElementById('cookieAuthForm').style.display = 'block';
+    document.getElementById('kugouQrBox').style.display = plat === 'kugou' ? 'flex' : 'none';
     const g = COOKIE_GUIDES[plat];
     document.getElementById('cookieGuideSummary').textContent = g.summary;
     document.getElementById('cookieGuideBody').innerHTML = g.html;
+    // Kugou: the QR login is primary, so keep the manual-token guide collapsed.
+    document.getElementById('cookieGuideSummary').parentElement.open = plat !== 'kugou';
     const btn = document.getElementById('saveCookieAuthBtn');
     btn.className = `btn ${g.btnClass}`;
     btn.textContent = `验证并保存 ${PLATFORM_LABELS[plat]} 连接`;
   }
+  if (plat !== 'kugou') stopKugouQrPolling();
   updateDrawerButtons(plat);
+}
+
+// ---------------------------------------------------------------------------
+// Kugou QR-code login
+// ---------------------------------------------------------------------------
+
+let kugouQrTimer = null;
+
+function stopKugouQrPolling() {
+  if (kugouQrTimer) {
+    clearInterval(kugouQrTimer);
+    kugouQrTimer = null;
+  }
+}
+
+async function startKugouQrLogin() {
+  stopKugouQrPolling();
+  const btn = document.getElementById('kugouQrBtn');
+  const msg = document.getElementById('kugouQrMsg');
+  const img = document.getElementById('kugouQrImg');
+  btn.disabled = true;
+  msg.style.color = 'var(--text-muted)';
+  msg.textContent = '⏳ 正在生成二维码...';
+  try {
+    const res = await fetch('/api/platforms/kugou/qrcode', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '生成二维码失败');
+    if (!String(data.qrcode_img || '').startsWith('data:image/')) throw new Error('二维码图片数据无效');
+    img.src = data.qrcode_img;
+    img.style.display = 'block';
+    msg.textContent = '📱 请使用酷狗音乐 App 扫码';
+    btn.textContent = '刷新二维码';
+    const key = data.key;
+    kugouQrTimer = setInterval(() => pollKugouQr(key), 2000);
+  } catch (err) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = `❌ ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function pollKugouQr(key) {
+  const msg = document.getElementById('kugouQrMsg');
+  try {
+    const res = await fetch(`/api/platforms/kugou/qrcode/${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '检查扫码状态失败');
+    if (data.status === 4 && data.connected) {
+      stopKugouQrPolling();
+      document.getElementById('kugouQrImg').style.display = 'none';
+      msg.style.color = 'var(--success)';
+      msg.textContent = `✅ ${data.message}`;
+      await refreshAllPlatformsStatus(false);
+      if (selectedTargetPlatform === 'kugou') loadTargetPlaylists(false);
+    } else if (data.status === 0) {
+      stopKugouQrPolling();
+      msg.style.color = 'var(--warning)';
+      msg.textContent = '⌛ 二维码已过期，请点击「刷新二维码」';
+    } else {
+      msg.style.color = 'var(--text-muted)';
+      msg.textContent = data.status === 2 ? '📲 已扫码，请在手机上确认登录' : '📱 请使用酷狗音乐 App 扫码';
+    }
+  } catch (err) {
+    stopKugouQrPolling();
+    msg.style.color = 'var(--danger)';
+    msg.textContent = `❌ ${err.message}`;
+  }
 }
 
 function updateDrawerButtons(plat) {
@@ -229,6 +330,7 @@ function updateDrawerButtons(plat) {
 }
 
 function closeAuthDrawer() {
+  stopKugouQrPolling();
   activeAuthDrawer = null;
   document.querySelectorAll('.plat-card').forEach(c => c.classList.remove('active-drawer'));
   document.getElementById('authDrawerCard').style.display = 'none';
@@ -334,7 +436,7 @@ async function importFromUrl() {
   const plat = document.getElementById('urlPlatformSelect').value;
   const urlVal = document.getElementById('playlistUrlInput').value.trim();
   if (!urlVal) {
-    showAlert('sourceAlert', 'error', '请先粘贴网易云音乐、QQ音乐或 YouTube Music 的歌单链接 / ID！');
+    showAlert('sourceAlert', 'error', '请先粘贴网易云音乐、QQ音乐、酷狗音乐、Apple Music 或 YouTube Music 的歌单链接 / ID！');
     return;
   }
   const btn = document.getElementById('importUrlBtn');
@@ -1233,7 +1335,7 @@ async function loadDedupePlaylists(showErr = false) {
   const sel = document.getElementById('dedupePlaylistSelect');
   sel.innerHTML = '<option value="">正在加载歌单...</option>';
   try {
-    const includeLiked = plat === 'netease' || plat === 'qqmusic';
+    const includeLiked = LINK_READ_PLATFORMS.includes(plat);
     const res = await fetch(`/api/platforms/${plat}/playlists?include_liked=${includeLiked}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || '获取失败');

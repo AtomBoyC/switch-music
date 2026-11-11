@@ -17,7 +17,7 @@
             <span>Switch Music</span>
             <span class="version-tag">v2.0 全平台版</span>
           </h1>
-          <p>本地无限制歌单互转 · 预匹配人工微调 · 歌单去重 · 定时增量同步（Spotify ⇄ YouTube Music ⇄ 网易云音乐 ⇄ QQ音乐）</p>
+          <p>本地无限制歌单互转 · 预匹配人工微调 · 歌单去重 · 定时增量同步（Spotify ⇄ YouTube Music ⇄ 网易云音乐 ⇄ QQ音乐 ⇄ 酷狗音乐 ⇄ Apple Music）</p>
         </div>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -30,7 +30,7 @@
       </div>
     </header>
 
-    <!-- 4-Platform Connection Hub -->
+    <!-- Multi-Platform Connection Hub -->
     <div class="platform-hub">
       <div id="platCard_ytm" class="plat-card" onclick="toggleAuthDrawer('ytm')">
         <div class="plat-info">
@@ -75,6 +75,28 @@
         </div>
         <span class="status-dot"></span>
       </div>
+
+      <div id="platCard_kugou" class="plat-card" onclick="toggleAuthDrawer('kugou')">
+        <div class="plat-info">
+          <div class="plat-logo logo-kugou">K</div>
+          <div>
+            <div class="plat-title">酷狗音乐</div>
+            <div id="platSub_kugou" class="plat-sub">检测中...</div>
+          </div>
+        </div>
+        <span class="status-dot"></span>
+      </div>
+
+      <div id="platCard_applemusic" class="plat-card" onclick="toggleAuthDrawer('applemusic')">
+        <div class="plat-info">
+          <div class="plat-logo logo-applemusic">♪</div>
+          <div>
+            <div class="plat-title">Apple Music</div>
+            <div id="platSub_applemusic" class="plat-sub">检测中...</div>
+          </div>
+        </div>
+        <span class="status-dot"></span>
+      </div>
     </div>
 
     <!-- Expandable Auth Drawer -->
@@ -94,8 +116,23 @@
         </div>
       </div>
 
-      <!-- Cookie / cURL Auth Form (YTM / NetEase / QQMusic) -->
+      <!-- Cookie / cURL Auth Form (YTM / NetEase / QQMusic / Kugou / Apple Music) -->
       <div id="cookieAuthForm" style="display: none;">
+        <!-- Kugou QR-code login (scan with the Kugou mobile app) -->
+        <div id="kugouQrBox" class="qr-box" style="display: none;">
+          <div class="qr-box-text">
+            <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">📱 推荐：酷狗 App 扫码登录</div>
+            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
+              打开手机「酷狗音乐」App → 右上角扫一扫，扫描右侧二维码并确认登录。<br />
+              登录凭据仅保存在本地 <code>data/</code> 目录。
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <button id="kugouQrBtn" class="btn btn-kugou" onclick="startKugouQrLogin()">生成登录二维码</button>
+              <span id="kugouQrMsg" style="font-size: 13px; color: var(--text-muted);"></span>
+            </div>
+          </div>
+          <img id="kugouQrImg" class="qr-img" alt="酷狗登录二维码" style="display: none;" />
+        </div>
         <details class="guide" open>
           <summary id="cookieGuideSummary">💡 15 秒获取连接凭据方法（点击展开/收起）</summary>
           <div id="cookieGuideBody" style="margin-top: 8px;"></div>
@@ -151,13 +188,13 @@
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">1</span>
-            <span>加载源歌单（支持网易云 / QQ音乐 / Spotify / YouTube Music / CSV / 文本）</span>
+            <span>加载源歌单（支持网易云 / QQ音乐 / 酷狗 / Apple Music / Spotify / YouTube Music / CSV / 文本）</span>
           </div>
           <span id="loadedCounter" style="font-size: 13px; color: var(--spotify); font-weight: 600;">尚未加载曲目</span>
         </div>
 
         <div class="tabs">
-          <button id="srcTab_url" class="tab-btn active" onclick="switchSourceTab('url')">🔗 链接直读（网易云/QQ音乐/YTM 免登录）</button>
+          <button id="srcTab_url" class="tab-btn active" onclick="switchSourceTab('url')">🔗 链接直读（网易云/QQ/酷狗/Apple/YTM 免登录）</button>
           <button id="srcTab_account" class="tab-btn" onclick="switchSourceTab('account')">☁️ 从已连接账号选择歌单</button>
           <button id="srcTab_csv" class="tab-btn" onclick="switchSourceTab('csv')">📂 上传 CSV / JSON 文件</button>
           <button id="srcTab_text" class="tab-btn" onclick="switchSourceTab('text')">📝 粘贴纯文本歌单</button>
@@ -170,6 +207,8 @@
             <ol>
               <li><strong>网易云音乐</strong>：支持网页链接 <code>https://music.163.com/#/playlist?id=...</code> 或 App 分享文本（含 <code>163cn.tv</code> 短链），自动突破 1000 首曲目上限读取全量歌曲！</li>
               <li><strong>QQ音乐</strong>：支持 <code>https://y.qq.com/n/ryqq/playlist/...</code> 或手机端分享短链（<code>c6.y.qq.com/base/fcgi-bin/u?...</code>）。</li>
+              <li><strong>酷狗音乐</strong>：支持网页链接 <code>https://www.kugou.com/songlist/gcid_.../</code>、App 分享短链或 <code>collection_3_..._0</code> 歌单 ID。</li>
+              <li><strong>Apple Music</strong>：支持公开歌单 / 专辑链接 <code>https://music.apple.com/cn/playlist/.../pl....</code> 与 <code>apple.co</code> 短链（自动提取 ISRC 精准匹配）。</li>
               <li><strong>YouTube Music</strong>：支持公开歌单链接 <code>https://music.youtube.com/playlist?list=PL...</code>。</li>
               <li>若歌单被设为「仅自己可见（私密）」或「我喜欢的音乐」，请点击顶部对应平台卡片登录后在「从已连接账号选择歌单」中拉取。</li>
             </ol>
@@ -179,10 +218,12 @@
               <option value="auto">✨ 自动识别平台</option>
               <option value="netease">网易云音乐</option>
               <option value="qqmusic">QQ音乐</option>
+              <option value="kugou">酷狗音乐</option>
+              <option value="applemusic">Apple Music</option>
               <option value="ytm">YouTube Music</option>
               <option value="spotify">Spotify (需已登录)</option>
             </select>
-            <input type="text" id="playlistUrlInput" style="flex: 1; min-width: 240px;" placeholder="粘贴网易云音乐 / QQ音乐 / YouTube Music 歌单分享链接、分享文本或数字歌单 ID..." />
+            <input type="text" id="playlistUrlInput" style="flex: 1; min-width: 240px;" placeholder="粘贴网易云 / QQ音乐 / 酷狗 / Apple Music / YouTube Music 歌单分享链接、分享文本或歌单 ID..." />
             <button id="importUrlBtn" class="btn btn-primary" onclick="importFromUrl()">📥 解析歌单</button>
           </div>
         </div>
@@ -196,6 +237,8 @@
                 <option value="spotify">Spotify（含 ❤️ Liked Songs &amp; 私密歌单）</option>
                 <option value="netease">网易云音乐（含 ❤️ 我喜欢的音乐 &amp; 收藏歌单）</option>
                 <option value="qqmusic">QQ音乐（含 ❤️ 我喜欢 &amp; 自建歌单）</option>
+                <option value="kugou">酷狗音乐（含 ❤️ 我喜欢 &amp; 自建歌单）</option>
+                <option value="applemusic">Apple Music（含资料库 &amp; 资料库歌单）</option>
                 <option value="ytm">YouTube Music（含 ❤️ Liked Music &amp; 歌单）</option>
               </select>
             </div>
@@ -343,6 +386,20 @@
             <div>
               <div style="font-size: 13px; font-weight: 700;">Spotify</div>
               <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / Liked</div>
+            </div>
+          </div>
+          <div class="target-plat-option" data-plat="kugou" onclick="selectTargetPlatform('kugou')">
+            <div class="plat-logo logo-kugou" style="width: 28px; height: 28px; font-size: 12px;">K</div>
+            <div>
+              <div style="font-size: 13px; font-weight: 700;">酷狗音乐</div>
+              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 我喜欢</div>
+            </div>
+          </div>
+          <div class="target-plat-option" data-plat="applemusic" onclick="selectTargetPlatform('applemusic')">
+            <div class="plat-logo logo-applemusic" style="width: 28px; height: 28px; font-size: 12px;">♪</div>
+            <div>
+              <div style="font-size: 13px; font-weight: 700;">Apple Music</div>
+              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 资料库</div>
             </div>
           </div>
         </div>
@@ -526,7 +583,7 @@
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">🧹</span>
-            <span>全平台歌单去重清理工具（支持 YouTube Music / 网易云音乐 / QQ音乐 / Spotify）</span>
+            <span>全平台歌单去重清理工具（支持 YouTube Music / 网易云音乐 / QQ音乐 / 酷狗音乐 / Spotify，Apple Music 仅扫描）</span>
           </div>
         </div>
 
@@ -537,7 +594,9 @@
               <option value="ytm">YouTube Music</option>
               <option value="netease">网易云音乐</option>
               <option value="qqmusic">QQ音乐</option>
+              <option value="kugou">酷狗音乐</option>
               <option value="spotify">Spotify</option>
+              <option value="applemusic">Apple Music（仅扫描，需在 App 内删除）</option>
             </select>
           </div>
           <div>
@@ -626,6 +685,8 @@
                 <option value="spotify">Spotify</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
+                <option value="kugou">酷狗音乐</option>
+                <option value="applemusic">Apple Music</option>
               </select>
               <select id="exportPlaylistSelect" style="flex: 1;">
                 <option value="">-- 点击刷新加载歌单 --</option>
@@ -636,7 +697,7 @@
           </div>
 
           <div>
-            <label>方式二：粘贴公开歌单链接直接导出 CSV（免登录支持网易云/QQ音乐/YTM）</label>
+            <label>方式二：粘贴公开歌单链接直接导出 CSV（免登录支持网易云/QQ音乐/酷狗/Apple Music/YTM）</label>
             <input type="text" id="exportUrlInput" placeholder="粘贴歌单分享链接..." style="margin-bottom: 10px;" />
             <button id="exportUrlBtn" class="btn btn-secondary" onclick="exportUrlPlaylistCsv()">📥 解析链接并下载 CSV</button>
           </div>
@@ -667,6 +728,8 @@
                 <option value="spotify">Spotify</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
+                <option value="kugou">酷狗音乐</option>
+                <option value="applemusic">Apple Music</option>
                 <option value="ytm">YouTube Music</option>
               </select>
               <select id="syncSrcPlaylist" style="flex: 1;"></select>
@@ -681,6 +744,8 @@
                 <option value="ytm">YouTube Music</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
+                <option value="kugou">酷狗音乐</option>
+                <option value="applemusic">Apple Music</option>
                 <option value="spotify">Spotify</option>
               </select>
               <select id="syncTgtPlaylist" style="flex: 1;"></select>

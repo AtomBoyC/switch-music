@@ -522,20 +522,18 @@ class NetEaseProvider(PlatformProvider):
         target_mode: str = "existing_playlist",
     ) -> Set[str]:
         ids: Set[str] = set()
-        try:
-            pid = self._get_liked_playlist_id() if target_mode == "liked_songs" else playlist_id
-            if not pid:
-                return ids
-            detail = self._post_weapi(
-                "/weapi/v6/playlist/detail",
-                {"id": str(pid), "n": 100000, "s": 0},
-                require_auth=True,
-            )
-            for item in ((detail.get("playlist") or {}).get("trackIds")) or []:
-                if isinstance(item, dict) and item.get("id"):
-                    ids.add(str(item["id"]))
-        except Exception:
-            pass
+        # Errors propagate: silently returning an empty set would disable duplicate protection.
+        pid = self._get_liked_playlist_id() if target_mode == "liked_songs" else playlist_id
+        if not pid:
+            return ids
+        detail = self._post_weapi(
+            "/weapi/v6/playlist/detail",
+            {"id": str(pid), "n": 100000, "s": 0},
+            require_auth=True,
+        )
+        for item in ((detail.get("playlist") or {}).get("trackIds")) or []:
+            if isinstance(item, dict) and item.get("id"):
+                ids.add(str(item["id"]))
         return ids
 
     def add_tracks(

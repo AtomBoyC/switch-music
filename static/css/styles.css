@@ -16,6 +16,10 @@
   --netease-dim: rgba(230, 0, 38, 0.14);
   --qqmusic: #31c27c;
   --qqmusic-dim: rgba(49, 194, 124, 0.14);
+  --kugou: #2a8cf0;
+  --kugou-dim: rgba(42, 140, 240, 0.14);
+  --applemusic: #fa2d48;
+  --applemusic-dim: rgba(250, 45, 72, 0.14);
   --accent: #3b82f6;
   --accent-dim: rgba(59, 130, 246, 0.15);
   --success: #10b981;
@@ -109,9 +113,15 @@ header {
 /* Platform Connection Bar */
 .platform-hub {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
   margin-bottom: 18px;
+}
+
+@media (max-width: 1180px) {
+  .platform-hub {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (max-width: 860px) {
@@ -174,6 +184,35 @@ header {
 .logo-spotify { background: linear-gradient(135deg, #1db954, #148f3f); color: #05180b; }
 .logo-netease { background: linear-gradient(135deg, #e60026, #b3001d); }
 .logo-qqmusic { background: linear-gradient(135deg, #31c27c, #1e9c5f); color: #041d11; }
+.logo-kugou { background: linear-gradient(135deg, #2a8cf0, #1764c0); }
+.logo-applemusic { background: linear-gradient(135deg, #fa2d48, #a833f0); }
+
+/* Kugou QR login */
+.qr-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(42, 140, 240, 0.4);
+  border-radius: 11px;
+  background: var(--kugou-dim);
+}
+
+.qr-box-text {
+  flex: 1;
+  min-width: 240px;
+}
+
+.qr-img {
+  width: 150px;
+  height: 150px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+}
 
 .plat-title {
   font-size: 13.5px;
@@ -380,7 +419,7 @@ input:focus, select:focus, textarea:focus {
 /* Target Platform Radio Grid */
 .target-plat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -422,6 +461,14 @@ input:focus, select:focus, textarea:focus {
 .target-plat-option.selected[data-plat="qqmusic"] {
   border-color: var(--qqmusic);
   background: var(--qqmusic-dim);
+}
+.target-plat-option.selected[data-plat="kugou"] {
+  border-color: var(--kugou);
+  background: var(--kugou-dim);
+}
+.target-plat-option.selected[data-plat="applemusic"] {
+  border-color: var(--applemusic);
+  background: var(--applemusic-dim);
 }
 
 /* Buttons */
@@ -484,6 +531,22 @@ input:focus, select:focus, textarea:focus {
 }
 .btn-qqmusic:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+
+.btn-kugou {
+  background: var(--kugou);
+  color: #fff;
+}
+.btn-kugou:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-applemusic {
+  background: var(--applemusic);
+  color: #fff;
+}
+.btn-applemusic:hover:not(:disabled) {
+  filter: brightness(1.1);
 }
 
 .btn-secondary {
@@ -737,7 +800,7 @@ tr:hover td {
 
 /* Duplicate Groups */
 .dup-groups-wrap {
-  max-height: 440px;
+  max-height: 620px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -751,6 +814,8 @@ tr:hover td {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.015);
   overflow: hidden;
+  /* Never let the scrolling flex column squash groups down to their header */
+  flex-shrink: 0;
 }
 
 .dup-group-header {
