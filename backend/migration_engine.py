@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import queue
 import threading
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.config import HISTORY_FILE, JOBS_DIR, read_json_file, write_json_file
 from backend.matcher import match_cache, match_track_with_provider
@@ -19,6 +20,28 @@ from backend.providers import get_provider
 
 _jobs_lock = threading.RLock()
 migration_jobs: Dict[str, Dict[str, Any]] = {}
+
+WRITE_BATCH_SIZE = 25
+WRITE_RETRY_ATTEMPTS = 3
+WRITE_RETRY_BACKOFF_SECONDS = 1.5
+CHECKPOINT_EVERY = 100
+
+
+def _job_file(job_id: str):
+    return JOBS_DIR / f"job_{job_id}.json"
+
+
+def _job_tracks_file(job_id: str):
+    return JOBS_DIR / f"job_{job_id}_tracks.json"
+
+
+def _remove_job_files(job_id: str) -> None:
+    for f in (_job_file(job_id), _job_tracks_file(job_id)):
+        try:
+            if f.exists():
+                f.unlink()
+        except OSError:
+            pass
 
 
 def _save_job_to_disk(job: Dict[str, Any]) -> None:
@@ -76,9 +99,7 @@ def get_history_list() -> List[Dict[str, Any]]:
 def delete_history_item(job_id: str) -> bool:
     with _jobs_lock:
         migration_jobs.pop(job_id, None)
-        job_file = JOBS_DIR / f"job_{job_id}.json"
-        if job_file.exists():
-            job_file.unlink()
+        _remove_job_files(job_id)
         history = [h for h in get_history_list() if h.get("job_id") != job_id]
         write_json_file(HISTORY_FILE, history)
         return True
@@ -92,9 +113,7 @@ def clear_all_history() -> int:
             jid = h.get("job_id")
             if jid:
                 migration_jobs.pop(jid, None)
-                jf = JOBS_DIR / f"job_{jid}.json"
-                if jf.exists():
-                    jf.unlink()
+                _remove_job_files(jid)
         write_json_file(HISTORY_FILE, [])
         return count
 
@@ -113,6 +132,7 @@ def _format_result_row(
     match: Optional[Dict[str, Any]],
     skipped_by_user: bool = False,
     already_existed: bool = False,
+    error: Optional[str] = None,
 ) -> Dict[str, Any]:
     base = {
         "index": idx + 1,
@@ -122,6 +142,7 @@ def _format_result_row(
         "source_album": track.album or "",
         "source_duration_ms": track.duration_ms or 0,
         "source_track": model_to_dict(track),
+        "write_failed": False,
     }
     if skipped_by_user:
         return {
@@ -130,6 +151,14 @@ def _format_result_row(
             "confidence": "skipped",
             "score": 0,
             "match_reason": "用户手动跳过",
+        }
+    if error:
+        return {
+            **base,
+            "status": "error",
+            "confidence": "unmatched",
+            "score": 0,
+            "match_reason": f"搜索出错（可稍后重试）: {error[:160]}",
         }
     if not match or not match.get("track_id"):
         return {
@@ -185,6 +214,7 @@ def start_preview_job(req: PreviewMatchRequest) -> str:
         "high_confidence_count": 0,
         "low_confidence_count": 0,
         "unmatched_count": 0,
+        "error_count": 0,
         "results": [],
         "unmatched_tracks": [],
         "error": None,
@@ -213,19 +243,24 @@ def _run_preview_worker(job_id: str, req: PreviewMatchRequest, concurrency: int)
             if job.get("cancel_requested"):
                 return
             job["current_track"] = f"{tr.title} - {tr.artist}"
-            m = match_track_with_provider(
-                provider,
-                tr,
-                use_cache=req.use_cache,
-                min_score=req.min_score,
-            )
+            err: Optional[str] = None
+            try:
+                m = match_track_with_provider(
+                    provider,
+                    tr,
+                    use_cache=req.use_cache,
+                    min_score=req.min_score,
+                )
+            except Exception as exc:  # never leave a hole in the ordered commit window
+                m = None
+                err = str(exc) or exc.__class__.__name__
             with commit_lock:
                 nonlocal next_commit
-                completed_map[idx] = m
+                completed_map[idx] = {"match": m, "error": err}
                 while next_commit in completed_map:
-                    res_match = completed_map.pop(next_commit)
+                    res = completed_map.pop(next_commit)
                     src_tr = req.tracks[next_commit]
-                    row = _format_result_row(next_commit, src_tr, res_match)
+                    row = _format_result_row(next_commit, src_tr, res["match"], error=res["error"])
                     job["results"].append(row)
                     job["current_index"] = next_commit + 1
                     if row["status"] == "matched":
@@ -236,6 +271,8 @@ def _run_preview_worker(job_id: str, req: PreviewMatchRequest, concurrency: int)
                             job["high_confidence_count"] += 1
                     else:
                         job["unmatched_count"] += 1
+                        if row["status"] == "error":
+                            job["error_count"] = job.get("error_count", 0) + 1
                         job["unmatched_tracks"].append(model_to_dict(src_tr))
                     next_commit += 1
 
@@ -292,6 +329,11 @@ def start_migration_job(req: MigrationRequest) -> str:
         "already_existed_count": 0,
         "unmatched_count": 0,
         "skipped_count": 0,
+        "error_count": 0,
+        "write_failed_count": 0,
+        "last_write_error": None,
+        "pending_count": 0,
+        "pending_tracks": [],
         "results": [],
         "unmatched_tracks": [],
         "error": None,
@@ -301,6 +343,9 @@ def start_migration_job(req: MigrationRequest) -> str:
     }
     with _jobs_lock:
         migration_jobs[job_id] = job
+    # Snapshot source tracks so an interrupted job (crash / restart) can resume its remainder.
+    write_json_file(_job_tracks_file(job_id), [model_to_dict(t) for t in req.tracks])
+    _save_job_to_disk(job)
 
     t = threading.Thread(target=_run_migration_worker, args=(job_id, req, concurrency), daemon=True)
     t.start()
@@ -342,25 +387,56 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
         existing_ids = provider.get_existing_track_ids(target_playlist_id, req.target_mode)
 
     seen_write_ids: Set[str] = set(existing_ids)
-    batch_buffer: List[Dict[str, Any]] = []
+    batch_buffer: List[Tuple[int, Dict[str, Any]]] = []
     prematched = req.prematched or {}
 
     completed_map: Dict[int, Dict[str, Any]] = {}
     next_commit = 0
     commit_lock = threading.Lock()
 
-    def _flush_buffer() -> None:
-        if not batch_buffer:
-            return
-        to_write = list(batch_buffer)
-        batch_buffer.clear()
-        provider.add_tracks(
-            playlist_id=target_playlist_id,
-            target_mode=req.target_mode,
-            candidates=to_write,
-            seen_ids=seen_write_ids,
-            skip_duplicates=req.skip_duplicates,
-        )
+    # Single ordered writer: chunks are enqueued under commit_lock (in playlist order)
+    # and written strictly one at a time, so concurrent searches can never reorder
+    # or race playlist writes, and write failures are recorded instead of swallowed.
+    write_queue: "queue.Queue[Optional[List[Tuple[int, Dict[str, Any]]]]]" = queue.Queue()
+
+    def _mark_write_failed(chunk: List[Tuple[int, Dict[str, Any]]], err: str) -> None:
+        with commit_lock:
+            for t_idx, _cand in chunk:
+                if t_idx < len(job["results"]):
+                    row = job["results"][t_idx]
+                    row["write_failed"] = True
+                    row["match_reason"] = f"写入目标平台失败: {err[:120]}"
+                job["unmatched_tracks"].append(model_to_dict(req.tracks[t_idx]))
+            job["write_failed_count"] = job.get("write_failed_count", 0) + len(chunk)
+            job["last_write_error"] = err[:300]
+
+    def _writer_loop() -> None:
+        while True:
+            chunk = write_queue.get()
+            if chunk is None:
+                return
+            if job.get("cancel_requested"):
+                continue
+            last_err = ""
+            for attempt in range(WRITE_RETRY_ATTEMPTS):
+                try:
+                    provider.add_tracks(
+                        playlist_id=target_playlist_id,
+                        target_mode=req.target_mode,
+                        candidates=[c for _i, c in chunk],
+                        seen_ids=seen_write_ids,
+                        skip_duplicates=req.skip_duplicates,
+                    )
+                    last_err = ""
+                    break
+                except Exception as exc:
+                    last_err = str(exc) or exc.__class__.__name__
+                    time.sleep(WRITE_RETRY_BACKOFF_SECONDS * (attempt + 1))
+            if last_err:
+                _mark_write_failed(chunk, last_err)
+
+    writer_thread = threading.Thread(target=_writer_loop, daemon=True)
+    writer_thread.start()
 
     def _resolve_track(idx: int, tr: TrackItem) -> Dict[str, Any]:
         key_str = str(idx)
@@ -374,12 +450,15 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                 return {"skipped": False, "match": pm}
 
         job["current_track"] = f"{tr.title} - {tr.artist}"
-        m = match_track_with_provider(
-            provider,
-            tr,
-            use_cache=req.use_cache,
-            min_score=req.min_score,
-        )
+        try:
+            m = match_track_with_provider(
+                provider,
+                tr,
+                use_cache=req.use_cache,
+                min_score=req.min_score,
+            )
+        except Exception as exc:  # never leave a hole in the ordered commit window
+            return {"skipped": False, "match": None, "error": str(exc) or exc.__class__.__name__}
         # Gentle pacing per worker when hitting live search APIs
         if not prematched:
             time.sleep(0.08)
@@ -388,8 +467,10 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
     def _worker_task(idx: int, tr: TrackItem) -> None:
         if job.get("cancel_requested"):
             return
-        outcome = _resolve_track(idx, tr)
-        batches_to_flush: List[List[Dict[str, Any]]] = []
+        try:
+            outcome = _resolve_track(idx, tr)
+        except Exception as exc:
+            outcome = {"skipped": False, "match": None, "error": str(exc) or exc.__class__.__name__}
 
         with commit_lock:
             nonlocal next_commit
@@ -399,6 +480,7 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                 cur_tr = req.tracks[next_commit]
                 skipped = bool(cur_out.get("skipped"))
                 match_cand = cur_out.get("match")
+                err = cur_out.get("error")
 
                 already_existed = False
                 if match_cand and match_cand.get("track_id"):
@@ -410,9 +492,9 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                     if req.skip_duplicates and cid_check in existing_ids:
                         already_existed = True
                     else:
-                        batch_buffer.append(match_cand)
-                        if len(batch_buffer) >= 25:
-                            batches_to_flush.append(list(batch_buffer))
+                        batch_buffer.append((next_commit, match_cand))
+                        if len(batch_buffer) >= WRITE_BATCH_SIZE:
+                            write_queue.put(list(batch_buffer))
                             batch_buffer.clear()
 
                 row = _format_result_row(
@@ -421,6 +503,7 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                     match_cand,
                     skipped_by_user=skipped,
                     already_existed=already_existed,
+                    error=err,
                 )
                 job["results"].append(row)
                 job["current_index"] = next_commit + 1
@@ -437,21 +520,13 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                         job["high_confidence_count"] += 1
                 else:
                     job["unmatched_count"] += 1
+                    if row["status"] == "error":
+                        job["error_count"] = job.get("error_count", 0) + 1
                     job["unmatched_tracks"].append(model_to_dict(cur_tr))
 
                 next_commit += 1
-
-        # Perform batch API writes outside commit_lock while preserving order
-        for chunk in batches_to_flush:
-            if job.get("cancel_requested"):
-                break
-            provider.add_tracks(
-                playlist_id=target_playlist_id,
-                target_mode=req.target_mode,
-                candidates=chunk,
-                seen_ids=seen_write_ids,
-                skip_duplicates=req.skip_duplicates,
-            )
+                if next_commit % CHECKPOINT_EVERY == 0:
+                    _save_job_to_disk(job)
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -461,25 +536,64 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
                     break
                 futures.append(pool.submit(_worker_task, i, track))
             for f in concurrent.futures.as_completed(futures):
-                if job.get("cancel_requested"):
-                    break
                 try:
                     f.result()
                 except Exception:
                     pass
 
-        if batch_buffer and not job.get("cancel_requested"):
-            _flush_buffer()
+        with commit_lock:
+            if batch_buffer and not job.get("cancel_requested"):
+                write_queue.put(list(batch_buffer))
+            batch_buffer.clear()
+        write_queue.put(None)
+        writer_thread.join()
 
         match_cache.flush()
         if job["status"] == "running":
             job["status"] = "cancelled" if job.get("cancel_requested") else "completed"
     except Exception as e:
+        write_queue.put(None)
         job["status"] = "failed"
         job["error"] = str(e)
 
+    _attach_pending_tracks(job, req.tracks)
     job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     _save_job_to_disk(job)
+
+
+def _attach_pending_tracks(job: Dict[str, Any], tracks: List[Any]) -> None:
+    """Tracks never processed (cancel / crash / restart) are kept so they can be retried in one click."""
+    done = len(job.get("results") or [])
+    pending = []
+    for t in tracks[done:]:
+        pending.append(t if isinstance(t, dict) else model_to_dict(t))
+    job["pending_tracks"] = pending
+    job["pending_count"] = len(pending)
+
+
+def recover_interrupted_jobs() -> int:
+    """
+    Called at server startup: any migration job checkpointed as "running" was interrupted
+    by a crash / restart. Mark it as interrupted and expose its unprocessed tracks.
+    """
+    recovered = 0
+    for jf in JOBS_DIR.glob("job_*.json"):
+        if jf.name.endswith("_tracks.json"):
+            continue
+        job = read_json_file(jf, None)
+        if not isinstance(job, dict) or job.get("status") != "running":
+            continue
+        job_id = job.get("job_id") or jf.stem[len("job_"):]
+        src_tracks = read_json_file(JOBS_DIR / f"job_{job_id}_tracks.json", [])
+        job["status"] = "interrupted"
+        job["error"] = "服务在任务执行过程中被关闭或重启，可点击「重试未完成曲目」继续。"
+        job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        _attach_pending_tracks(job, src_tracks if isinstance(src_tracks, list) else [])
+        with _jobs_lock:
+            migration_jobs.pop(job_id, None)
+        _save_job_to_disk(job)
+        recovered += 1
+    return recovered
 
 
 def apply_manual_match(req: ManualApplyMatchRequest) -> Dict[str, Any]:
@@ -525,7 +639,16 @@ def apply_manual_match(req: ManualApplyMatchRequest) -> Dict[str, Any]:
                             cand,
                         )
                         job["results"][idx] = updated_row
-                        if prev_status == "unmatched":
+                        if r.get("write_failed"):
+                            job["write_failed_count"] = max(0, job.get("write_failed_count", 1) - 1)
+                            job["unmatched_tracks"] = [
+                                ut
+                                for ut in (job.get("unmatched_tracks") or [])
+                                if not (ut.get("title") == src_track.title and ut.get("artist") == src_track.artist)
+                            ]
+                        if prev_status in ("unmatched", "error"):
+                            if prev_status == "error":
+                                job["error_count"] = max(0, job.get("error_count", 1) - 1)
                             job["unmatched_count"] = max(0, job.get("unmatched_count", 1) - 1)
                             job["matched_count"] = job.get("matched_count", 0) + 1
                             job["unmatched_tracks"] = [

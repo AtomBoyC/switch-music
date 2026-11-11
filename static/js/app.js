@@ -928,11 +928,23 @@ function renderJobProgress(job) {
       : `🎉 歌单迁移已完成！（成功导入 ${job.matched_count} 首${job.already_existed_count ? `，其中 ${job.already_existed_count} 首原歌单已存在自动防重` : ''}）`;
     statusLabel.style.color = 'var(--success)';
   } else if (job.status === 'cancelled') {
-    statusLabel.textContent = '⏹ 任务已手动停止';
+    statusLabel.textContent = job.pending_count
+      ? `⏹ 任务已手动停止（尚有 ${job.pending_count} 首未处理，可点击「重试」继续）`
+      : '⏹ 任务已手动停止';
+    statusLabel.style.color = 'var(--warning)';
+  } else if (job.status === 'interrupted') {
+    statusLabel.textContent = `⚠️ 任务因服务关闭/重启而中断（尚有 ${job.pending_count || 0} 首未处理），可点击「重试未匹配/未完成曲目」继续`;
     statusLabel.style.color = 'var(--warning)';
   } else if (job.status === 'failed') {
     statusLabel.textContent = `❌ 任务失败：${job.error || ''}`;
     statusLabel.style.color = 'var(--danger)';
+  }
+
+  const warnings = [];
+  if (job.error_count) warnings.push(`${job.error_count} 首因网络/限流搜索出错（重试通常即可成功）`);
+  if (job.write_failed_count) warnings.push(`${job.write_failed_count} 首写入目标平台失败${job.last_write_error ? '：' + job.last_write_error : ''}`);
+  if (warnings.length && job.status !== 'running') {
+    statusLabel.textContent += `　⚠️ ${warnings.join('；')}`;
   }
 
   if (job.status !== 'running' && !isPreview) {
@@ -946,12 +958,17 @@ function renderJobProgress(job) {
     } else {
       openLink.style.display = 'none';
     }
-    const hasUnmatched = (job.unmatched_tracks || []).length > 0;
+    const hasUnmatched = getRetryableTracks(job).length > 0;
     document.getElementById('retryUnmatchedBtn').style.display = hasUnmatched ? 'inline-flex' : 'none';
     document.getElementById('exportUnmatchedBtn').style.display = hasUnmatched ? 'inline-flex' : 'none';
   }
 
   renderJobResultsTable();
+}
+
+function getRetryableTracks(job) {
+  if (!job) return [];
+  return [...(job.unmatched_tracks || []), ...(job.pending_tracks || [])];
 }
 
 function setResultFilter(f) {
@@ -987,8 +1004,12 @@ function renderJobResultsTable() {
     let badgeHtml = '';
     if (isSkipped) {
       badgeHtml = `<span class="pill pill-muted">已跳过</span>`;
+    } else if (r.status === 'error' && !(ov && ov.candidate)) {
+      badgeHtml = `<span class="pill pill-warn">⚠️ 搜索出错</span>`;
     } else if (!isMatched) {
       badgeHtml = `<span class="pill pill-fail">未匹配</span>`;
+    } else if (r.write_failed) {
+      badgeHtml = `<span class="pill pill-fail">写入失败</span>`;
     } else if (conf === 'manual') {
       badgeHtml = `<span class="pill pill-info">🎯 人工指定</span>`;
     } else if (conf === 'low') {
@@ -1032,7 +1053,7 @@ function renderJobResultsTable() {
              <div style="font-size: 12px; color: var(--text-muted);">
                ${escapeHtml(mArtist)}${mDur ? ' · ' + escapeHtml(mDur) : ''}${mReason ? ' · <span style="opacity:0.8">' + escapeHtml(mReason) + '</span>' : ''}
              </div>`
-          : `<span style="color: var(--text-muted); font-size: 12px;">未搜索到可靠匹配，可点击右侧手动指定</span>`
+          : `<span style="color: var(--text-muted); font-size: 12px;">${r.status === 'error' ? escapeHtml(r.match_reason || '搜索出错') : '未搜索到可靠匹配，可点击右侧手动指定'}</span>`
         }
       </td>
       <td>
@@ -1057,10 +1078,11 @@ async function cancelActiveJob() {
 }
 
 function loadUnmatchedForRetry() {
-  if (!currentJobData || !(currentJobData.unmatched_tracks || []).length) return;
+  const retryTracks = getRetryableTracks(currentJobData);
+  if (!retryTracks.length) return;
   document.getElementById('appendTracksModeCheckbox').checked = false;
   applyIncomingTracks(
-    currentJobData.unmatched_tracks,
+    retryTracks,
     (currentJobData.playlist_title || 'Playlist') + ' (未匹配重试)',
     currentJobData.source_platform || 'retry'
   );
@@ -1068,8 +1090,9 @@ function loadUnmatchedForRetry() {
 }
 
 async function exportUnmatchedCsv() {
-  if (!currentJobData || !(currentJobData.unmatched_tracks || []).length) return;
-  await triggerCsvDownload(`${currentJobData.playlist_title || 'Playlist'}_未匹配曲目`, currentJobData.unmatched_tracks);
+  const retryTracks = getRetryableTracks(currentJobData);
+  if (!retryTracks.length) return;
+  await triggerCsvDownload(`${currentJobData.playlist_title || 'Playlist'}_未匹配曲目`, retryTracks);
 }
 
 async function exportFullJobReportCsv() {

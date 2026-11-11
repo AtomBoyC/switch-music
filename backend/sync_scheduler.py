@@ -172,6 +172,8 @@ class IncrementalSyncScheduler:
                     new_raw_tracks.append(raw_t)
 
             added_count = 0
+            unmatched_count = 0
+            retry_later_fps: Set[str] = set()
             if new_raw_tracks:
                 existing_target_ids = tgt_prov.get_existing_track_ids(
                     task.get("target_playlist_id"), task.get("target_mode", "existing_playlist")
@@ -179,9 +181,16 @@ class IncrementalSyncScheduler:
                 matched_cands: List[Dict[str, Any]] = []
                 for raw_t in new_raw_tracks:
                     tr = TrackItem(**raw_t)
-                    m = match_track_with_provider(tgt_prov, tr, use_cache=True)
+                    try:
+                        m = match_track_with_provider(tgt_prov, tr, use_cache=True)
+                    except Exception:
+                        # Transient search failure: don't mark as synced, retry on next run.
+                        retry_later_fps.add(_track_fingerprint(raw_t))
+                        continue
                     if m and m.get("track_id"):
                         matched_cands.append(m)
+                    else:
+                        unmatched_count += 1
                     time.sleep(0.08)
 
                 match_cache.flush()
@@ -194,7 +203,9 @@ class IncrementalSyncScheduler:
                         skip_duplicates=True,
                     )
 
-            merged_fps = list(dict.fromkeys(list(known_set) + all_current_fps))[-10000:]
+            merged_fps = [
+                fp for fp in dict.fromkeys(list(known_set) + all_current_fps) if fp not in retry_later_fps
+            ][-10000:]
             with self._lock:
                 tasks = self._load_tasks()
                 for t in tasks:
@@ -208,7 +219,12 @@ class IncrementalSyncScheduler:
                         if len(new_raw_tracks) == 0:
                             t["last_message"] = f"扫描完成（共 {len(src_tracks)} 首），暂无新增曲目"
                         else:
-                            t["last_message"] = f"发现 {len(new_raw_tracks)} 首新歌，成功同步写入 {added_count} 首"
+                            msg = f"发现 {len(new_raw_tracks)} 首新歌，成功同步写入 {added_count} 首"
+                            if unmatched_count:
+                                msg += f"，{unmatched_count} 首未匹配"
+                            if retry_later_fps:
+                                msg += f"，{len(retry_later_fps)} 首搜索失败将于下次重试"
+                            t["last_message"] = msg
                         break
                 self._save_tasks(tasks)
         except Exception as e:

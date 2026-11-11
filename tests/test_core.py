@@ -18,6 +18,11 @@ from backend.providers.qqmusic import QQMusicProvider, calc_qq_gtk, extract_qq_u
 from backend.text_utils import clean_str, extract_version_tags, strip_noise_for_query, to_simplified
 
 
+def _client() -> TestClient:
+    # The app only accepts loopback Host headers (DNS-rebinding protection).
+    return TestClient(app_module.app, base_url="http://127.0.0.1:8765")
+
+
 class TestSwitchMusicCore(unittest.TestCase):
     def test_traditional_simplified_and_cleaning(self):
         self.assertEqual(to_simplified("周杰倫 - 髮如雪 (Live 演唱會)"), "周杰伦 - 发如雪 (Live 演唱会)")
@@ -142,7 +147,7 @@ class TestSwitchMusicCore(unittest.TestCase):
         self.assertEqual(pl_res["duplicates_count"], 1)
 
     def test_fastapi_endpoints(self):
-        with TestClient(app_module.app) as client:
+        with _client() as client:
             r_home = client.get("/")
             self.assertEqual(r_home.status_code, 200)
             self.assertIn("Switch Music", r_home.text)
@@ -225,7 +230,7 @@ class TestSwitchMusicCore(unittest.TestCase):
                  patch("backend.migration_engine.HISTORY_FILE", tmp_path / "history.json"), \
                  patch("backend.migration_engine.JOBS_DIR", tmp_path / "jobs"), \
                  patch("backend.matcher.MATCH_CACHE_FILE", tmp_path / "cache.json"):
-                with TestClient(app_module.app) as client:
+                with _client() as client:
                     r_start = client.post(
                         "/api/migrate/start",
                         json={
@@ -282,7 +287,7 @@ class TestSwitchMusicCore(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("backend.sync_scheduler.SYNC_TASKS_FILE", Path(tmpdir) / "sync_tasks.json"):
-                with TestClient(app_module.app) as client:
+                with _client() as client:
                     r_create = client.post(
                         "/api/sync/tasks",
                         json={
@@ -350,6 +355,163 @@ class TestSwitchMusicCore(unittest.TestCase):
         builtin_globals = {"if", "event", "window", "document", "alert", "confirm"}
         missing_funcs = (inline_calls - js_funcs) - builtin_globals
         self.assertEqual(missing_funcs, set(), f"Missing JS functions referenced in index.html: {missing_funcs}")
+
+
+class TestReliabilityAndSecurity(unittest.TestCase):
+    """v2.1: pipeline resilience, ordered writer, crash recovery and local-server hardening."""
+
+    def _isolated_paths(self, tmp_path):
+        return [
+            patch("backend.migration_engine.HISTORY_FILE", tmp_path / "history.json"),
+            patch("backend.migration_engine.JOBS_DIR", tmp_path / "jobs"),
+            patch("backend.matcher.MATCH_CACHE_FILE", tmp_path / "cache.json"),
+        ]
+
+    def test_host_and_origin_guard(self):
+        from backend.config import is_allowed_host, is_allowed_origin
+
+        self.assertTrue(is_allowed_host("127.0.0.1:8765"))
+        self.assertTrue(is_allowed_host("localhost:8765"))
+        self.assertTrue(is_allowed_host("[::1]:8765"))
+        self.assertFalse(is_allowed_host("evil.example.com"))
+        self.assertFalse(is_allowed_host("127.0.0.1.evil.com:8765"))
+        self.assertTrue(is_allowed_origin(""))
+        self.assertTrue(is_allowed_origin("http://127.0.0.1:8765"))
+        self.assertFalse(is_allowed_origin("https://evil.example.com"))
+        self.assertFalse(is_allowed_origin("null"))
+
+        with _client() as client:
+            self.assertEqual(client.get("/api/health").status_code, 200)
+            # DNS rebinding: foreign Host header must be rejected
+            r_host = client.get("/api/health", headers={"host": "attacker.example.com"})
+            self.assertEqual(r_host.status_code, 403)
+            # CSRF: cross-site POST must be rejected, same-origin POST allowed
+            payload = {"text": "晴天 - 周杰伦", "playlist_name": "x"}
+            r_evil = client.post("/api/import/text", json=payload, headers={"origin": "https://evil.example.com"})
+            self.assertEqual(r_evil.status_code, 403)
+            r_ok = client.post("/api/import/text", json=payload, headers={"origin": "http://127.0.0.1:8765"})
+            self.assertEqual(r_ok.status_code, 200)
+            self.assertEqual(r_ok.headers.get("x-frame-options"), "DENY")
+
+    def test_private_file_permissions(self):
+        import os
+        import stat
+        import tempfile
+        from pathlib import Path
+        from backend.config import write_json_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "secret.json"
+            write_json_file(p, {"MUSIC_U": "x"})
+            mode = stat.S_IMODE(os.stat(p).st_mode)
+            self.assertEqual(mode, 0o600)
+
+    def test_search_errors_do_not_stall_pipeline_and_write_failures_are_recorded(self):
+        import tempfile
+        import time as _time
+        from contextlib import ExitStack
+        from pathlib import Path
+        from backend import migration_engine
+        from backend.models import MigrationRequest
+        from backend.providers.base import PlatformProvider
+
+        written = []
+
+        class FlakyProvider(PlatformProvider):
+            platform_id = "netease"
+            platform_name = "网易云音乐"
+
+            def get_status(self):
+                return {"platform": "netease", "connected": True}
+
+            def create_playlist(self, title, description="", privacy_status="PRIVATE"):
+                return "pl_1"
+
+            def search_candidates(self, query, limit=6):
+                if "Broken" in query:
+                    raise ConnectionError("HTTP 429 Too Many Requests")
+                num = query.split()[1]
+                return [{
+                    "platform": "netease", "track_id": f"id_{num}", "title": f"Song {num}",
+                    "artist": "Artist", "duration_seconds": 200, "resultType": "song",
+                }]
+
+            def add_tracks(self, playlist_id, target_mode, candidates, seen_ids, skip_duplicates=True):
+                ids = [c["track_id"] for c in candidates]
+                if "id_13" in ids:
+                    raise RuntimeError("playlist write rejected")
+                written.extend(ids)
+                return len(ids)
+
+        tracks = []
+        for i in range(1, 31):
+            title = "Broken Song" if i == 2 else f"Song {i}"
+            tracks.append({"title": title, "artist": "Artist", "duration_ms": 200000})
+
+        with tempfile.TemporaryDirectory() as tmpdir, ExitStack() as stack:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "jobs").mkdir()
+            for p in self._isolated_paths(tmp_path):
+                stack.enter_context(p)
+            stack.enter_context(patch("backend.migration_engine.get_provider", return_value=FlakyProvider()))
+            stack.enter_context(patch("backend.migration_engine.WRITE_RETRY_BACKOFF_SECONDS", 0.01))
+            stack.enter_context(patch("backend.migration_engine.WRITE_BATCH_SIZE", 10))
+
+            req = MigrationRequest(
+                source_platform="csv", target_platform="netease", target_mode="new_playlist",
+                playlist_title="t", concurrency=4, use_cache=False, tracks=tracks,
+            )
+            jid = migration_engine.start_migration_job(req)
+            for _ in range(200):
+                job = migration_engine.get_job(jid)
+                if job["status"] != "running":
+                    break
+                _time.sleep(0.05)
+
+            self.assertEqual(job["status"], "completed")
+            # Every track committed despite the exception on track #2 (no stalled window)
+            self.assertEqual(len(job["results"]), 30)
+            self.assertEqual(job["results"][1]["status"], "error")
+            self.assertEqual(job["error_count"], 1)
+            self.assertEqual(job["matched_count"], 29)
+            # Batch containing id_13 failed after retries -> recorded, other batches still written in order
+            self.assertEqual(job["write_failed_count"], 10)
+            self.assertTrue(job["results"][12]["write_failed"])
+            expected_order = [f"id_{i}" for i in range(1, 31) if i != 2]
+            failed_batch = expected_order[10:20]
+            self.assertIn("id_13", failed_batch)
+            self.assertEqual(written, [x for x in expected_order if x not in failed_batch])
+            # Failed rows are retryable
+            self.assertEqual(len(job["unmatched_tracks"]), 11)
+
+    def test_interrupted_job_recovery(self):
+        import tempfile
+        from contextlib import ExitStack
+        from pathlib import Path
+        from backend import migration_engine
+        from backend.config import read_json_file, write_json_file
+
+        with tempfile.TemporaryDirectory() as tmpdir, ExitStack() as stack:
+            tmp_path = Path(tmpdir)
+            jobs_dir = tmp_path / "jobs"
+            jobs_dir.mkdir()
+            for p in self._isolated_paths(tmp_path):
+                stack.enter_context(p)
+
+            src = [{"title": f"S{i}", "artist": "A"} for i in range(5)]
+            write_json_file(jobs_dir / "job_dead1.json", {
+                "job_id": "dead1", "job_type": "migrate", "status": "running",
+                "results": [{"index": 1, "track_index": 0}, {"index": 2, "track_index": 1}],
+            })
+            write_json_file(jobs_dir / "job_dead1_tracks.json", src)
+
+            self.assertEqual(migration_engine.recover_interrupted_jobs(), 1)
+            job = read_json_file(jobs_dir / "job_dead1.json", {})
+            self.assertEqual(job["status"], "interrupted")
+            self.assertEqual(job["pending_count"], 3)
+            self.assertEqual([t["title"] for t in job["pending_tracks"]], ["S2", "S3", "S4"])
+            history = read_json_file(tmp_path / "history.json", [])
+            self.assertEqual(history[0]["status"], "interrupted")
 
 
 if __name__ == "__main__":

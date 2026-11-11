@@ -11,6 +11,7 @@ import requests
 
 from backend.config import (
     NETEASE_AUTH_FILE,
+    make_retry_session,
     parse_cookie_and_headers,
     read_json_file,
     write_json_file,
@@ -157,12 +158,15 @@ class NetEaseProvider(PlatformProvider):
         cookies_dict.setdefault("os", "pc")
         cookies_dict.setdefault("appver", "2.9.7")
 
-        sess = requests.Session()
+        sess = make_retry_session()
         sess.headers.update(self.BASE_HEADERS)
         cookie_header = "; ".join(f"{k}={v}" for k, v in cookies_dict.items() if k and v is not None)
         if cookie_header:
             sess.headers["Cookie"] = cookie_header
         return sess, auth
+
+    # NetEase signals throttling inside HTTP 200 JSON bodies (e.g. code 405 / -460 "操作频繁").
+    THROTTLE_CODES = {405, -460, -462, 406}
 
     def _post_weapi(
         self,
@@ -178,11 +182,18 @@ class NetEaseProvider(PlatformProvider):
         csrf = ((auth.get("cookies") or {}).get("__csrf")) or ""
         body = dict(payload)
         body.setdefault("csrf_token", csrf)
-        encrypted = weapi_encrypt(body)
         url = f"https://music.163.com{path}?csrf_token={csrf}"
-        resp = sess.post(url, data=encrypted, timeout=12)
-        resp.raise_for_status()
-        return resp.json()
+        data: Dict[str, Any] = {}
+        for attempt in range(3):
+            encrypted = weapi_encrypt(body)
+            resp = sess.post(url, data=encrypted, timeout=12)
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and data.get("code") in self.THROTTLE_CODES and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+        return data
 
     def save_auth(self, raw_input: str) -> Dict[str, Any]:
         _, cookie_dict, _ = parse_cookie_and_headers(raw_input)

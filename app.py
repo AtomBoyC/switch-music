@@ -16,10 +16,16 @@ except Exception:
     pass
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from backend.config import PLATFORM_META, STATIC_DIR
+from backend.config import (
+    PLATFORM_META,
+    STATIC_DIR,
+    harden_data_dir_permissions,
+    is_allowed_host,
+    is_allowed_origin,
+)
 from backend.csv_io import export_tracks_to_csv_string, parse_csv_tracks, parse_plain_text_tracks
 from backend.deduplicator import analyze_playlist_duplicate_groups, deduplicate_source_tracks
 from backend.matcher import match_cache, score_candidate
@@ -30,6 +36,7 @@ from backend.migration_engine import (
     delete_history_item,
     get_history_list,
     get_job,
+    recover_interrupted_jobs,
     start_migration_job,
     start_preview_job,
 )
@@ -60,22 +67,52 @@ from backend.providers import (
 )
 from backend.sync_scheduler import sync_scheduler
 
+APP_VERSION = "2.1.0"
+
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
+    harden_data_dir_permissions()
+    recover_interrupted_jobs()
     sync_scheduler.start()
     try:
         yield
     finally:
         sync_scheduler.stop()
+        match_cache.flush()
 
 
 app = FastAPI(
     title="Switch Music · 全平台歌单互转与去重中心",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.middleware("http")
+async def local_security_guard(request: Request, call_next):
+    """
+    The server stores music-account cookies / OAuth tokens locally, so it must only be
+    reachable from this machine's own UI:
+      * Host header allow-list blocks DNS-rebinding attacks from malicious websites.
+      * Origin check on state-changing requests blocks cross-site form/fetch CSRF.
+    """
+    if not is_allowed_host(request.headers.get("host", "")):
+        return JSONResponse({"detail": "Forbidden host"}, status_code=403)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if not is_allowed_origin(request.headers.get("origin", "")):
+            return JSONResponse({"detail": "Cross-origin request blocked"}, status_code=403)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "version": APP_VERSION}
 
 
 # ---------------------------------------------------------------------------

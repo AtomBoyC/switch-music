@@ -10,6 +10,7 @@ import requests
 
 from backend.config import (
     QQMUSIC_AUTH_FILE,
+    make_retry_session,
     parse_cookie_and_headers,
     read_json_file,
     write_json_file,
@@ -77,7 +78,7 @@ class QQMusicProvider(PlatformProvider):
         if require_auth and (not uin or not musickey):
             raise ValueError("尚未连接 QQ 音乐账号（需包含 uin 与 qm_keyst / qqmusic_key 的 Cookie），请先在连接面板配置。")
 
-        sess = requests.Session()
+        sess = make_retry_session()
         sess.headers.update(self.BASE_HEADERS)
         if cookies_dict:
             sess.headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies_dict.items() if k and v is not None)

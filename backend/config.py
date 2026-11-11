@@ -92,14 +92,93 @@ def read_json_file(path: Path, default: Any) -> Any:
 
 
 def write_json_file(path: Path, data: Any) -> None:
+    """
+    Atomically write JSON. Files inside data/ hold account cookies / OAuth tokens,
+    so they are always created with owner-only (0600) permissions.
+    """
     with _file_lock:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
-        tmp_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            pass
         os.replace(tmp_path, path)
+
+
+def harden_data_dir_permissions() -> None:
+    """Restrict data/ (credentials, tokens, history) to the current user only."""
+    try:
+        os.chmod(DATA_DIR, 0o700)
+        for p in DATA_DIR.rglob("*"):
+            try:
+                os.chmod(p, 0o700 if p.is_dir() else 0o600)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+# Hosts allowed to reach the local web server (DNS-rebinding protection).
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def is_allowed_host(host_header: str) -> bool:
+    host = (host_header or "").strip().lower()
+    if not host:
+        return False
+    if host.startswith("["):
+        name = host.split("]")[0] + "]"
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return name in ALLOWED_HOSTS
+
+
+def is_allowed_origin(origin: str) -> bool:
+    """Origin header check for state-changing requests (CSRF protection)."""
+    if not origin:
+        # Non-browser clients (curl, scripts) and same-origin navigations send no Origin.
+        return True
+    if origin.strip().lower() == "null":
+        return False
+    m = re.match(r"^https?://([^/]+)$", origin.strip().lower())
+    return bool(m and is_allowed_host(m.group(1)))
+
+
+def make_retry_session(total: int = 3, backoff: float = 0.6):
+    """
+    requests.Session with automatic retry + exponential backoff on transient
+    failures (connection errors, HTTP 429 / 502 / 503 / 504), honoring Retry-After.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry_kwargs: Dict[str, Any] = dict(
+        total=total,
+        connect=total,
+        read=1,
+        backoff_factor=backoff,
+        status_forcelist=(429, 502, 503, 504),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    methods = frozenset(["GET", "HEAD", "POST", "OPTIONS"])
+    try:
+        retry = Retry(allowed_methods=methods, **retry_kwargs)
+    except TypeError:  # urllib3 < 1.26
+        retry = Retry(method_whitelist=methods, **retry_kwargs)
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=16)
+    sess = requests.Session()
+    sess.mount("https://", adapter)
+    sess.mount("http://", adapter)
+    return sess
 
 
 def parse_cookie_string_to_dict(cookie_str: str) -> Dict[str, str]:

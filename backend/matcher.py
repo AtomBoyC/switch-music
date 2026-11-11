@@ -342,11 +342,15 @@ def match_track_with_provider(
 
     queries = build_search_queries(track)
     seen_cand_ids = set()
+    search_errors = 0
+    last_error: Optional[BaseException] = None
 
     for q_idx, q in enumerate(queries):
         try:
             candidates = provider.search_candidates(q, limit=6) or []
-        except Exception:
+        except Exception as exc:
+            search_errors += 1
+            last_error = exc
             candidates = []
 
         for idx, cand in enumerate(candidates):
@@ -374,4 +378,13 @@ def match_track_with_provider(
             match_cache.put(target_platform, track, best_candidate)
         return best_candidate
 
+    # Every search attempt failed (network / rate limit / expired login): report it as an
+    # error instead of a misleading "unmatched", so the user knows a retry may succeed.
+    if queries and search_errors == len(queries) and best_candidate is None and last_error is not None:
+        raise SearchFailedError(str(last_error) or last_error.__class__.__name__)
+
     return None
+
+
+class SearchFailedError(RuntimeError):
+    """Raised when all search queries for a track failed with exceptions."""
