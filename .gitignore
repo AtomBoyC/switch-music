@@ -2,6 +2,7 @@
 data/
 *browser.json
 *oauth.json
+*auth.json
 *spotify_config.json
 .spotify_cache
 *.cache
@@ -14,6 +15,7 @@ ENV/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 
 # macOS & IDE files
 .DS_Store

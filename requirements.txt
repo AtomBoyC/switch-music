@@ -4,3 +4,4 @@ ytmusicapi
 spotipy
 python-multipart
 requests
+httpx
