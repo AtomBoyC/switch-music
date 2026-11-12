@@ -1,0 +1,21 @@
+# Switch Music — docker compose up -d   →   http://127.0.0.1:8765
+services:
+  switch-music:
+    image: atomboyc/switch-music:latest
+    # build: .            # uncomment to build from source instead of pulling from Docker Hub
+    container_name: switch-music
+    restart: unless-stopped
+    ports:
+      # Only reachable from this machine. To open it to your LAN use "8765:8765"
+      # AND set SWITCH_MUSIC_PASSWORD + SWITCH_MUSIC_ALLOWED_HOSTS below.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./data:/data          # credentials, match cache, history, sync rules
+    environment:
+      TZ: Asia/Shanghai
+      # Access password (HTTP Basic auth, any username). Required if not bound to 127.0.0.1.
+      # SWITCH_MUSIC_PASSWORD: change-me
+      # Extra hostnames / IPs used to open the UI, comma separated ("*" = any; only with a password).
+      # SWITCH_MUSIC_ALLOWED_HOSTS: 192.168.1.10,music.example.com
+      # Spotify only allows http redirect URIs on 127.0.0.1; on a remote server use your https URL.
+      # SPOTIFY_REDIRECT_URI: https://music.example.com/api/spotify/callback

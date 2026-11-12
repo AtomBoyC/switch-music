@@ -198,6 +198,9 @@ async function refreshAllPlatformsStatus(showFeedback = false) {
     if (platformStatuses.spotify && platformStatuses.spotify.client_id) {
       document.getElementById('spClientId').value = platformStatuses.spotify.client_id;
     }
+    if (platformStatuses.spotify && platformStatuses.spotify.redirect_uri) {
+      document.getElementById('spRedirectUri').textContent = platformStatuses.spotify.redirect_uri;
+    }
     if (activeAuthDrawer) {
       updateDrawerButtons(activeAuthDrawer);
     }

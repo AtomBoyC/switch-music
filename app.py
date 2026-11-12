@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import concurrent.futures
+import hmac
 import re
 import urllib.parse
 import warnings
@@ -20,6 +22,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import (
+    ACCESS_PASSWORD,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
     PLATFORM_META,
     STATIC_DIR,
     harden_data_dir_permissions,
@@ -69,7 +74,7 @@ from backend.providers import (
 )
 from backend.sync_scheduler import sync_scheduler
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 
 @asynccontextmanager
@@ -99,17 +104,40 @@ async def local_security_guard(request: Request, call_next):
     reachable from this machine's own UI:
       * Host header allow-list blocks DNS-rebinding attacks from malicious websites.
       * Origin check on state-changing requests blocks cross-site form/fetch CSRF.
+      * Optional access password (SWITCH_MUSIC_PASSWORD) for LAN / server deployments.
     """
-    if not is_allowed_host(request.headers.get("host", "")):
-        return JSONResponse({"detail": "Forbidden host"}, status_code=403)
+    host = request.headers.get("host", "")
+    if not is_allowed_host(host):
+        return JSONResponse(
+            {"detail": "Forbidden host（如需通过局域网 IP / 域名访问，请设置环境变量 SWITCH_MUSIC_ALLOWED_HOSTS）"},
+            status_code=403,
+        )
+    if ACCESS_PASSWORD and request.url.path != "/api/health" and not _password_ok(request):
+        return Response(
+            "需要访问密码 / Authentication required",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Switch Music", charset="UTF-8"'},
+        )
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        if not is_allowed_origin(request.headers.get("origin", "")):
+        if not is_allowed_origin(request.headers.get("origin", ""), host):
             return JSONResponse({"detail": "Cross-origin request blocked"}, status_code=403)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     return response
+
+
+def _password_ok(request: Request) -> bool:
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("basic "):
+        return False
+    try:
+        decoded = base64.b64decode(auth[6:].strip()).decode("utf-8")
+    except Exception:
+        return False
+    _, _, password = decoded.partition(":")  # any username is accepted
+    return hmac.compare_digest(password.encode("utf-8"), ACCESS_PASSWORD.encode("utf-8"))
 
 
 @app.get("/api/health")
@@ -574,4 +602,4 @@ def api_delete_sync_task(task_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8765, reload=False)
+    uvicorn.run("app:app", host=DEFAULT_HOST, port=DEFAULT_PORT, reload=False, proxy_headers=True)

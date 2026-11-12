@@ -150,7 +150,7 @@
           <summary>💡 如何获取 Spotify Developer Client ID &amp; Secret？（支持双向读写歌单）</summary>
           <ol>
             <li>访问 <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: #34d399;">Spotify Developer Dashboard</a> 并点击 <strong>Create app</strong>。</li>
-            <li>在 <strong>Redirect URIs</strong> 中填入：<code>http://127.0.0.1:8765/api/spotify/callback</code> 并保存。</li>
+            <li>在 <strong>Redirect URIs</strong> 中填入：<code id="spRedirectUri">http://127.0.0.1:8765/api/spotify/callback</code> 并保存。</li>
             <li>复制 App Settings 中的 <strong>Client ID</strong> 和 <strong>Client Secret</strong> 填入下方，点击授权登录即可拉取私密歌单并支持反向写入 Spotify！</li>
           </ol>
         </details>

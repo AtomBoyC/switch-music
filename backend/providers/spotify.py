@@ -11,6 +11,7 @@ from backend.config import (
     DEFAULT_SPOTIFY_REDIRECT_URI,
     SPOTIFY_CACHE_FILE,
     SPOTIFY_CONFIG_FILE,
+    SPOTIFY_REDIRECT_URI_ENV,
     read_json_file,
     write_json_file,
 )
@@ -35,7 +36,7 @@ class SpotifyProvider(PlatformProvider):
             return None
         client_id = str(cfg.get("client_id") or "").strip()
         client_secret = str(cfg.get("client_secret") or "").strip()
-        redirect_uri = str(cfg.get("redirect_uri") or DEFAULT_SPOTIFY_REDIRECT_URI).strip()
+        redirect_uri = SPOTIFY_REDIRECT_URI_ENV or str(cfg.get("redirect_uri") or DEFAULT_SPOTIFY_REDIRECT_URI).strip()
         if not client_id or not client_secret:
             return None
 
@@ -80,7 +81,7 @@ class SpotifyProvider(PlatformProvider):
         data = {
             "client_id": cid,
             "client_secret": sec,
-            "redirect_uri": redirect_uri.strip() or DEFAULT_SPOTIFY_REDIRECT_URI,
+            "redirect_uri": SPOTIFY_REDIRECT_URI_ENV or redirect_uri.strip() or DEFAULT_SPOTIFY_REDIRECT_URI,
         }
         write_json_file(SPOTIFY_CONFIG_FILE, data)
         # Build OAuth with full read + write scopes so user gets bidirectional capability
@@ -107,7 +108,7 @@ class SpotifyProvider(PlatformProvider):
                 "connected": False,
                 "has_write_scope": False,
                 "client_id": cfg.get("client_id", ""),
-                "redirect_uri": cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
+                "redirect_uri": SPOTIFY_REDIRECT_URI_ENV or cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
             }
 
         try:
@@ -128,7 +129,7 @@ class SpotifyProvider(PlatformProvider):
                     "user_id": me.get("id", ""),
                     "message": f"已登录 ({user_name})",
                     "client_id": cfg.get("client_id", ""),
-                    "redirect_uri": cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
+                    "redirect_uri": SPOTIFY_REDIRECT_URI_ENV or cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
                 }
         except Exception:
             pass
@@ -140,7 +141,7 @@ class SpotifyProvider(PlatformProvider):
             "connected": False,
             "has_write_scope": False,
             "client_id": cfg.get("client_id", ""),
-            "redirect_uri": cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
+            "redirect_uri": SPOTIFY_REDIRECT_URI_ENV or cfg.get("redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
         }
 
     def disconnect(self) -> Dict[str, Any]:

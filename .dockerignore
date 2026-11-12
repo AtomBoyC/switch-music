@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+venv
+data
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.DS_Store
+.idea
+.vscode
+.env
+start.command
+docker-compose.yml

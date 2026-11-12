@@ -1,7 +1,7 @@
-fastapi
-uvicorn
-ytmusicapi
-spotipy
-python-multipart
-requests
-httpx
+fastapi>=0.128,<0.129
+uvicorn>=0.39,<0.40
+ytmusicapi>=1.10.3,<1.11
+spotipy>=2.26,<2.27
+python-multipart>=0.0.20,<0.1
+requests>=2.32.5,<3
+httpx>=0.28.1,<0.29

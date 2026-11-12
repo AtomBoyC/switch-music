@@ -397,6 +397,32 @@ class TestReliabilityAndSecurity(unittest.TestCase):
             self.assertEqual(r_ok.status_code, 200)
             self.assertEqual(r_ok.headers.get("x-frame-options"), "DENY")
 
+    def test_deployment_options_password_and_hosts(self):
+        """Docker/server mode: optional password, extra allowed hosts, wildcard never opens CSRF."""
+        import base64
+        from backend import config as cfg
+
+        with patch.object(app_module, "ACCESS_PASSWORD", "s3cret"), _client() as client:
+            self.assertEqual(client.get("/api/health").status_code, 200)  # healthcheck stays open
+            r = client.get("/")
+            self.assertEqual(r.status_code, 401)
+            self.assertIn("Basic", r.headers.get("www-authenticate", ""))
+            bad = base64.b64encode(b"any:wrong").decode()
+            self.assertEqual(client.get("/", headers={"authorization": f"Basic {bad}"}).status_code, 401)
+            good = base64.b64encode(b"whoever:s3cret").decode()
+            self.assertEqual(client.get("/", headers={"authorization": f"Basic {good}"}).status_code, 200)
+
+        with patch.object(cfg, "ALLOW_ANY_HOST", True):
+            self.assertTrue(cfg.is_allowed_host("music.example.com"))
+            # Wildcard host must not make foreign origins acceptable...
+            self.assertFalse(cfg.is_allowed_origin("https://evil.example.com", "music.example.com"))
+            # ...while same-origin requests on the deployment host are fine.
+            self.assertTrue(cfg.is_allowed_origin("https://music.example.com", "music.example.com"))
+
+        with patch.object(cfg, "ALLOWED_HOSTS", cfg.ALLOWED_HOSTS | {"192.168.1.10"}):
+            self.assertTrue(cfg.is_allowed_host("192.168.1.10:8765"))
+            self.assertTrue(cfg.is_allowed_origin("http://192.168.1.10:8765"))
+
     def test_private_file_permissions(self):
         import os
         import stat

@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# Data directory (credentials, cache, history). Override in Docker to point at a mounted volume.
+DATA_DIR = Path(os.environ.get("SWITCH_MUSIC_DATA_DIR") or (BASE_DIR / "data")).expanduser().resolve()
 JOBS_DIR = DATA_DIR / "jobs"
 STATIC_DIR = BASE_DIR / "static"
 
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 JOBS_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 
@@ -32,8 +33,15 @@ MATCH_CACHE_FILE = DATA_DIR / "match_cache.json"
 HISTORY_FILE = DATA_DIR / "migration_history.json"
 SYNC_TASKS_FILE = DATA_DIR / "sync_tasks.json"
 
-DEFAULT_PORT = 8765
-DEFAULT_SPOTIFY_REDIRECT_URI = f"http://127.0.0.1:{DEFAULT_PORT}/api/spotify/callback"
+DEFAULT_PORT = int(os.environ.get("PORT") or 8765)
+# Bind address: 127.0.0.1 locally; the Docker image sets HOST=0.0.0.0.
+DEFAULT_HOST = os.environ.get("HOST") or "127.0.0.1"
+# Spotify only accepts plain-http redirect URIs on loopback; remote deployments need an https URL.
+SPOTIFY_REDIRECT_URI_ENV = (os.environ.get("SPOTIFY_REDIRECT_URI") or "").strip()
+DEFAULT_SPOTIFY_REDIRECT_URI = SPOTIFY_REDIRECT_URI_ENV or f"http://127.0.0.1:{DEFAULT_PORT}/api/spotify/callback"
+# Optional access password (HTTP Basic auth, any username). Strongly recommended when the
+# service is reachable from other machines, because it stores your music-account credentials.
+ACCESS_PASSWORD = os.environ.get("SWITCH_MUSIC_PASSWORD") or ""
 
 _file_lock = threading.RLock()
 
@@ -156,12 +164,19 @@ def harden_data_dir_permissions() -> None:
 
 # Hosts allowed to reach the local web server (DNS-rebinding protection).
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+# Extra hosts for LAN / server deployments, e.g. SWITCH_MUSIC_ALLOWED_HOSTS="192.168.1.10,music.example.com".
+# "*" disables the Host check (only do this behind SWITCH_MUSIC_PASSWORD or a trusted proxy).
+_EXTRA_HOSTS = {h.strip().lower() for h in (os.environ.get("SWITCH_MUSIC_ALLOWED_HOSTS") or "").split(",") if h.strip()}
+ALLOW_ANY_HOST = "*" in _EXTRA_HOSTS
+ALLOWED_HOSTS |= _EXTRA_HOSTS - {"*"}
 
 
 def is_allowed_host(host_header: str) -> bool:
     host = (host_header or "").strip().lower()
     if not host:
         return False
+    if ALLOW_ANY_HOST:
+        return True
     if host.startswith("["):
         name = host.split("]")[0] + "]"
     else:
@@ -169,7 +184,7 @@ def is_allowed_host(host_header: str) -> bool:
     return name in ALLOWED_HOSTS
 
 
-def is_allowed_origin(origin: str) -> bool:
+def is_allowed_origin(origin: str, request_host: str = "") -> bool:
     """Origin header check for state-changing requests (CSRF protection)."""
     if not origin:
         # Non-browser clients (curl, scripts) and same-origin navigations send no Origin.
@@ -177,7 +192,15 @@ def is_allowed_origin(origin: str) -> bool:
     if origin.strip().lower() == "null":
         return False
     m = re.match(r"^https?://([^/]+)$", origin.strip().lower())
-    return bool(m and is_allowed_host(m.group(1)))
+    if not m:
+        return False
+    origin_host = m.group(1)
+    # Same-origin request (works for any deployment host, incl. behind a reverse proxy).
+    if request_host and origin_host == request_host.strip().lower():
+        return True
+    # Explicit allow-list only — the "*" Host wildcard must never open up cross-site writes.
+    name = origin_host.rsplit(":", 1)[0] if origin_host.count(":") == 1 else origin_host
+    return name in ALLOWED_HOSTS
 
 
 def make_retry_session(total: int = 3, backoff: float = 0.6):

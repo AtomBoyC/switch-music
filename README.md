@@ -75,6 +75,38 @@ uvicorn app:app --host 127.0.0.1 --port 8765 --reload
 ```
 浏览器访问：**http://127.0.0.1:8765**
 
+### 🐳 Docker 部署
+
+```bash
+# 方式一：直接拉取镜像（支持 amd64 / arm64：Intel、Apple Silicon、树莓派、群晖等 NAS）
+docker run -d --name switch-music \
+  -p 127.0.0.1:8765:8765 \
+  -v "$PWD/data:/data" \
+  --restart unless-stopped \
+  atomboyc/switch-music:latest
+
+# 方式二：docker compose（编辑 docker-compose.yml 中的可选环境变量后）
+docker compose up -d
+
+# 方式三：从源码构建
+docker build -t switch-music .
+```
+
+所有凭据、匹配缓存、历史与同步规则都保存在挂载的 `/data` 卷中，升级镜像不会丢失。
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `SWITCH_MUSIC_PASSWORD` | 空 | 访问密码（浏览器弹窗登录，用户名任意）。**只要端口对其他设备开放就必须设置**，因为服务里保存着你的音乐账号凭据 |
+| `SWITCH_MUSIC_ALLOWED_HOSTS` | 空 | 允许访问的局域网 IP / 域名，逗号分隔，如 `192.168.1.10,music.example.com`；`*` 表示任意（仅在设置密码时使用） |
+| `SPOTIFY_REDIRECT_URI` | `http://127.0.0.1:8765/api/spotify/callback` | Spotify 只允许 `127.0.0.1` 使用 http 回调；部署在服务器上需配置 https 反向代理并填写对应地址 |
+| `PORT` | `8765` | 容器内监听端口 |
+| `PUID` / `PGID` | `10001` | 运行用户 / 组（NAS 上可设为你的用户 ID） |
+| `TZ` | `Asia/Shanghai` | 时区（影响定时同步与历史记录时间） |
+
+> 💡 NAS 上没有 https 时，可用 SSH 隧道 `ssh -L 8765:127.0.0.1:8765 你的NAS` 后在本机打开 `http://127.0.0.1:8765` 完成一次 Spotify 授权，令牌会保存在 `/data` 并自动续期。
+
+镜像由 GitHub Actions（`.github/workflows/docker.yml`）自动测试、构建并推送到 Docker Hub：推送到 `main` 发布 `latest`，打 `v*` 标签发布对应版本号。
+
 ### 运行单元测试
 ```bash
 ./.venv/bin/python -m unittest discover -s tests -t . -v
