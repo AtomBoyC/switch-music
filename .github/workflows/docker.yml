@@ -14,8 +14,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -30,7 +30,7 @@ jobs:
       PUBLISH: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Smoke-test the image
         run: |
@@ -43,8 +43,10 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8765/ | grep -q "Switch Music"
           curl -fsS http://127.0.0.1:8765/api/platforms/status > /dev/null
-          docker exec sm id
-          ls -la ci-data
+          # The app process (PID 1 after setpriv) must not run as root, and must own /data.
+          docker exec sm sh -c 'grep "^Uid:" /proc/1/status' | tee /dev/stderr | grep -q "10001"
+          sudo ls -lan ci-data
+          [ "$(sudo stat -c %u ci-data)" = "10001" ]
           docker logs sm
           docker rm -f sm
 
