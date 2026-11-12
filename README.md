@@ -83,7 +83,7 @@ docker run -d --name switch-music \
   -p 127.0.0.1:8765:8765 \
   -v "$PWD/data:/data" \
   --restart unless-stopped \
-  atomboyc/switch-music:latest
+  ciezsup/switch-music:latest
 
 # 方式二：docker compose（编辑 docker-compose.yml 中的可选环境变量后）
 docker compose up -d

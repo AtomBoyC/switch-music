@@ -102,5 +102,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
-          short-description: "Self-hosted playlist migration & dedupe: Spotify / YouTube Music / NetEase / QQ / Kugou / Apple Music"
+          short-description: "Self-hosted playlist migration & dedupe: Spotify, YTM, NetEase, QQ, Kugou, Apple Music"
           readme-filepath: ./DOCKER.md

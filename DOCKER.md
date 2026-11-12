@@ -13,7 +13,7 @@ docker run -d --name switch-music \
   -p 127.0.0.1:8765:8765 \
   -v "$PWD/switch-music-data:/data" \
   --restart unless-stopped \
-  atomboyc/switch-music:latest
+  ciezsup/switch-music:latest
 ```
 
 Open **http://127.0.0.1:8765**.
@@ -42,7 +42,7 @@ docker run -d --name switch-music \
   -e SWITCH_MUSIC_PASSWORD='a-strong-password' \
   -e SWITCH_MUSIC_ALLOWED_HOSTS='192.168.1.10' \
   --restart unless-stopped \
-  atomboyc/switch-music:latest
+  ciezsup/switch-music:latest
 ```
 
 > Tip: Spotify authorization must be completed from a `127.0.0.1` URL or an https domain. On a NAS without https,
