@@ -2,7 +2,8 @@
 services:
   switch-music:
     image: atomboyc/switch-music:latest
-    # build: .            # uncomment to build from source instead of pulling from Docker Hub
+    # Mirror (faster in CN): ghcr.io/atomboyc/switch-music:latest
+    # build: .            # uncomment to build from source instead of pulling
     container_name: switch-music
     restart: unless-stopped
     ports:
@@ -13,9 +14,12 @@ services:
       - ./data:/data          # credentials, match cache, history, sync rules
     environment:
       TZ: Asia/Shanghai
-      # Access password (HTTP Basic auth, any username). Required if not bound to 127.0.0.1.
+      # Non-root UID / GID owning /data (set to your NAS user ID if needed, default 10001):
+      # PUID: "1000"
+      # PGID: "1000"
+      # Access password (HTTP Basic auth, any username). Required if not bound to 127.0.0.1:
       # SWITCH_MUSIC_PASSWORD: change-me
-      # Extra hostnames / IPs used to open the UI, comma separated ("*" = any; only with a password).
+      # Extra hostnames / IPs used to open the UI, comma separated ("*" = any; only with a password):
       # SWITCH_MUSIC_ALLOWED_HOSTS: 192.168.1.10,music.example.com
-      # Spotify only allows http redirect URIs on 127.0.0.1; on a remote server use your https URL.
+      # Spotify only allows http redirect URIs on 127.0.0.1; on a remote server use your https URL:
       # SPOTIFY_REDIRECT_URI: https://music.example.com/api/spotify/callback

@@ -13,3 +13,5 @@ __pycache__
 .env
 start.command
 docker-compose.yml
+*.md
+tests
