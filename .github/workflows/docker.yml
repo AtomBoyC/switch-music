@@ -32,6 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Publishing status
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            echo "Publishing to Docker Hub as ${DOCKERHUB_USERNAME}/${IMAGE_NAME}" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Pull request: build only, not publishing." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            msg="Image NOT published: repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are missing (Settings → Secrets and variables → Actions)."
+            echo "::warning title=Docker Hub publish skipped::${msg}"
+            echo "⚠️ ${msg}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Smoke-test the image
         run: |
           docker build -t switch-music:ci .
