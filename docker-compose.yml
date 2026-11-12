@@ -1,7 +1,7 @@
 # Switch Music — docker compose up -d   →   http://127.0.0.1:8765
 services:
   switch-music:
-    image: ciezsup/switch-music:latest
+    image: atomboyc/switch-music:latest
     # build: .            # uncomment to build from source instead of pulling from Docker Hub
     container_name: switch-music
     restart: unless-stopped
