@@ -290,12 +290,14 @@ def _run_preview_worker(job_id: str, req: PreviewMatchRequest, concurrency: int)
                     pass
 
         match_cache.flush()
-        job["status"] = "cancelled" if job.get("cancel_requested") else "completed"
-        job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _jobs_lock:
+            job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            job["status"] = "cancelled" if job.get("cancel_requested") else "completed"
     except Exception as e:
-        job["status"] = "failed"
-        job["error"] = str(e)
-        job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _jobs_lock:
+            job["error"] = str(e)
+            job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            job["status"] = "failed"
 
 
 def start_migration_job(req: MigrationRequest) -> str:
@@ -374,10 +376,7 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
 
         job["target_playlist_url"] = provider.build_playlist_url(target_playlist_id, req.target_mode)
     except Exception as e:
-        job["status"] = "failed"
-        job["error"] = f"准备目标歌单失败: {str(e)}"
-        job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        _save_job_to_disk(job)
+        _finalize_migration_job(job, "failed", req.tracks, error=f"准备目标歌单失败: {str(e)}")
         return
 
     existing_ids: Set[str] = set()
@@ -388,13 +387,12 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
         except Exception as e:
             # Never leave the job stuck in "running", and never silently write without
             # duplicate protection: stop here so the user can fix the login and retry.
-            job["status"] = "failed"
-            job["error"] = (
-                f"读取目标歌单已有曲目失败（为避免重复写入已中止，尚未写入任何曲目）: {str(e) or e.__class__.__name__}"
+            _finalize_migration_job(
+                job,
+                "failed",
+                req.tracks,
+                error=f"读取目标歌单已有曲目失败（为避免重复写入已中止，尚未写入任何曲目）: {str(e) or e.__class__.__name__}",
             )
-            _attach_pending_tracks(job, req.tracks)
-            job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            _save_job_to_disk(job)
             return
 
     seen_write_ids: Set[str] = set(existing_ids)
@@ -456,7 +454,10 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
             if pm.get("skip"):
                 return {"skipped": True, "match": None}
             if pm.get("candidate") and pm["candidate"].get("track_id"):
-                return {"skipped": False, "match": pm["candidate"]}
+                cand_obj = dict(pm["candidate"])
+                if req.use_cache and cand_obj.get("confidence") == "manual":
+                    match_cache.put(req.target_platform, tr, cand_obj)
+                return {"skipped": False, "match": cand_obj}
             if pm.get("track_id"):
                 return {"skipped": False, "match": pm}
 
@@ -560,16 +561,28 @@ def _run_migration_worker(job_id: str, req: MigrationRequest, concurrency: int) 
         writer_thread.join()
 
         match_cache.flush()
-        if job["status"] == "running":
-            job["status"] = "cancelled" if job.get("cancel_requested") else "completed"
+        final_status = ("cancelled" if job.get("cancel_requested") else "completed") if job["status"] == "running" else job["status"]
+        _finalize_migration_job(job, final_status, req.tracks)
     except Exception as e:
         write_queue.put(None)
-        job["status"] = "failed"
-        job["error"] = str(e)
+        writer_thread.join(timeout=5)
+        _finalize_migration_job(job, "failed", req.tracks, error=str(e))
 
-    _attach_pending_tracks(job, req.tracks)
-    job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _save_job_to_disk(job)
+
+def _finalize_migration_job(
+    job: Dict[str, Any],
+    final_status: str,
+    tracks: List[Any],
+    error: Optional[str] = None,
+) -> None:
+    """Atomically finalize job fields and persist to disk under _jobs_lock before exposing terminal status."""
+    with _jobs_lock:
+        if error is not None:
+            job["error"] = error
+        _attach_pending_tracks(job, tracks)
+        job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        job["status"] = final_status
+        _save_job_to_disk(job)
 
 
 def _attach_pending_tracks(job: Dict[str, Any], tracks: List[Any]) -> None:

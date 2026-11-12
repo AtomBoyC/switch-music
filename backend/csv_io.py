@@ -23,6 +23,11 @@ def parse_csv_tracks(content_bytes: bytes, filename: str = "") -> Dict[str, Any]
             text = content_bytes.decode("latin-1", errors="replace")
 
     stripped = text.lstrip()
+    if filename.lower().endswith((".m3u", ".m3u8")) or stripped.upper().startswith("#EXTM3U") or "#EXTINF:" in stripped[:400]:
+        m3u_res = parse_m3u8_tracks(text, filename)
+        if m3u_res["tracks"]:
+            return m3u_res
+
     if filename.lower().endswith(".json") or stripped.startswith("[") or stripped.startswith("{"):
         try:
             data = json.loads(stripped)
@@ -288,3 +293,165 @@ def export_tracks_to_csv_string(tracks: List[Dict[str, Any]]) -> str:
             ]
         )
     return "\ufeff" + buf.getvalue()
+
+
+def parse_m3u8_tracks(text: str, filename: str = "") -> Dict[str, Any]:
+    """
+    Parse #EXTM3U / .m3u / .m3u8 playlists (Jellyfin / Navidrome / foobar2000 / Apple Music).
+    Supports #PLAYLIST: header, #EXTINF:seconds,Artist - Title metadata, and bare path lines.
+    """
+    playlist_name = Path(filename).stem.replace("_", " ").strip() if filename else "Imported M3U8 Playlist"
+    tracks: List[Dict[str, Any]] = []
+    pending_inf: Dict[str, Any] = {}
+
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.upper().startswith("#EXTM3U"):
+            continue
+        if line.upper().startswith("#PLAYLIST:"):
+            pname = line.split(":", 1)[1].strip()
+            if pname:
+                playlist_name = pname
+            continue
+        if line.upper().startswith("#EXTINF:"):
+            rest = line.split(":", 1)[1].strip()
+            dur_ms = 0
+            display = rest
+            if "," in rest:
+                dur_part, display = rest.split(",", 1)
+                dur_m = re.match(r"^\s*(-?\d+(?:\.\d+)?)", dur_part)
+                if dur_m:
+                    sec = float(dur_m.group(1))
+                    if sec > 0:
+                        dur_ms = int(sec * 1000)
+            display = display.strip()
+            artist = ""
+            title = display
+            if " - " in display:
+                left, right = display.split(" - ", 1)
+                artist, title = left.strip(), right.strip()
+            elif " — " in display or " – " in display:
+                parts = re.split(r"\s+[—–]\s+", display, maxsplit=1)
+                artist = parts[0].strip()
+                title = parts[1].strip() if len(parts) > 1 else ""
+            pending_inf = {"title": title, "artist": artist, "duration_ms": dur_ms}
+            continue
+        if line.startswith("#"):
+            continue
+
+        # Media path or URL line
+        path_val = line
+        if pending_inf.get("title"):
+            tracks.append(
+                {
+                    "title": pending_inf["title"],
+                    "artist": pending_inf.get("artist", ""),
+                    "album": "",
+                    "duration_ms": pending_inf.get("duration_ms", 0),
+                    "isrc": "",
+                    "spotify_uri": "",
+                    "source_platform": "m3u8",
+                    "source_id": "",
+                    "extra": {"path": path_val},
+                }
+            )
+            pending_inf = {}
+        else:
+            # Infer Artist - Title from file basename
+            stem = Path(path_val.replace("\\", "/")).stem.strip()
+            stem = re.sub(r"^\d{1,3}[\s._-]+", "", stem)
+            artist, title = "", stem
+            if " - " in stem:
+                artist, title = [x.strip() for x in stem.split(" - ", 1)]
+            if title:
+                tracks.append(
+                    {
+                        "title": title,
+                        "artist": artist,
+                        "album": "",
+                        "duration_ms": 0,
+                        "isrc": "",
+                        "spotify_uri": "",
+                        "source_platform": "m3u8",
+                        "source_id": "",
+                        "extra": {"path": path_val},
+                    }
+                )
+
+    if pending_inf.get("title"):
+        tracks.append(
+            {
+                "title": pending_inf["title"],
+                "artist": pending_inf.get("artist", ""),
+                "album": "",
+                "duration_ms": pending_inf.get("duration_ms", 0),
+                "isrc": "",
+                "spotify_uri": "",
+                "source_platform": "m3u8",
+                "source_id": "",
+            }
+        )
+
+    return {
+        "playlist_name": playlist_name or "Imported M3U8 Playlist",
+        "count": len(tracks),
+        "tracks": tracks,
+    }
+
+
+def export_tracks_to_m3u8_string(tracks: List[Dict[str, Any]], playlist_name: str = "Switch Music Playlist") -> str:
+    """
+    Generate standard UTF-8 #EXTM3U (.m3u8) playlist compatible with Jellyfin, Navidrome, Plex & foobar2000.
+    Preserves local/Subsonic relative file paths when present, falling back to URL or Artist - Title.mp3 hint.
+    """
+    lines = ["#EXTM3U", f"#PLAYLIST:{playlist_name}"]
+    for t in tracks:
+        title = str(t.get("title") or t.get("source_title") or "").strip()
+        artist = str(t.get("artist") or t.get("source_artist") or "").strip()
+        if not title:
+            continue
+        dur_ms = int(t.get("duration_ms") or 0)
+        dur_sec = (dur_ms // 1000) if dur_ms > 0 else -1
+        display = f"{artist} - {title}" if artist else title
+        lines.append(f"#EXTINF:{dur_sec},{display}")
+
+        extra = t.get("extra") if isinstance(t.get("extra"), dict) else {}
+        location = (
+            str(extra.get("path") or t.get("path") or "").strip()
+            or str(t.get("matched_url") or t.get("url") or t.get("spotify_uri") or "").strip()
+            or f"{display}.flac"
+        )
+        lines.append(location)
+    return "\n".join(lines) + "\n"
+
+
+def export_tracks_to_json_string(tracks: List[Dict[str, Any]], playlist_name: str = "Switch Music Playlist") -> str:
+    """Export portable UTF-8 JSON backup with full metadata (ISRC, duration_ms, source IDs)."""
+    cleaned = []
+    for t in tracks:
+        title = str(t.get("title") or t.get("source_title") or "").strip()
+        if not title:
+            continue
+        cleaned.append(
+            {
+                "title": title,
+                "artist": str(t.get("artist") or t.get("source_artist") or "").strip(),
+                "album": str(t.get("album") or t.get("source_album") or "").strip(),
+                "duration_ms": int(t.get("duration_ms") or 0),
+                "isrc": str(t.get("isrc") or "").strip(),
+                "source_platform": str(t.get("source_platform") or "").strip(),
+                "source_id": str(t.get("source_id") or t.get("spotify_uri") or "").strip(),
+                "extra": t.get("extra") if isinstance(t.get("extra"), dict) else {},
+            }
+        )
+    return json.dumps(
+        {
+            "playlist_name": playlist_name,
+            "count": len(cleaned),
+            "tracks": cleaned,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )

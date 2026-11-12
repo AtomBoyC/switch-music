@@ -115,6 +115,30 @@ PLATFORM_META: Dict[str, Dict[str, Any]] = {
         # duplicates can be scanned but have to be removed in the Music app.
         "supports_dedupe": False,
     },
+    "subsonic": {
+        "id": "subsonic",
+        "name": "Navidrome / Subsonic",
+        "short_name": "Navidrome",
+        "supports_url_import": False,
+        "supports_oauth": False,
+        "supports_cookie_auth": False,
+        "supports_server_auth": True,
+        "supports_write": True,
+        "supports_liked": True,
+        "supports_dedupe": True,
+    },
+    "qishui": {
+        "id": "qishui",
+        "name": "汽水音乐",
+        "short_name": "汽水",
+        "supports_url_import": True,
+        "supports_oauth": False,
+        "supports_cookie_auth": False,
+        "supports_write": False,
+        "supports_liked": False,
+        "supports_dedupe": False,
+        "source_only": True,
+    },
 }
 
 

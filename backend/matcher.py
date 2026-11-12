@@ -54,7 +54,16 @@ class MatchCache:
     def put(self, target_platform: str, track: TrackItem, candidate: Dict[str, Any], flush_now: bool = False) -> None:
         key = self.make_key(target_platform, track)
         with self._lock:
-            self._data[key] = {"ts": int(time.time()), "candidate": candidate}
+            self._data[key] = {
+                "ts": int(time.time()),
+                "source": {
+                    "title": track.title or "",
+                    "artist": track.artist or "",
+                    "album": track.album or "",
+                    "isrc": track.isrc or "",
+                },
+                "candidate": candidate,
+            }
             self._dirty_count += 1
             # Cap cache size to 15,000 entries
             if len(self._data) > 15000:
@@ -69,6 +78,84 @@ class MatchCache:
             if self._dirty_count > 0:
                 write_json_file(MATCH_CACHE_FILE, self._data)
                 self._dirty_count = 0
+
+    def delete_key(self, key: str) -> bool:
+        with self._lock:
+            if key in self._data:
+                self._data.pop(key, None)
+                write_json_file(MATCH_CACHE_FILE, self._data)
+                self._dirty_count = 0
+                return True
+            return False
+
+    def list_entries(self, platform: str = "", query: str = "", limit: int = 200) -> Dict[str, Any]:
+        plat_filter = (platform or "").strip().lower()
+        q_filter = (query or "").strip().lower()
+        cap = max(1, min(1000, int(limit or 200)))
+        now = time.time()
+
+        with self._lock:
+            total_all = len(self._data)
+            by_platform: Dict[str, int] = {}
+            matched_rows: List[Dict[str, Any]] = []
+
+            for key, entry in self._data.items():
+                if not isinstance(entry, dict):
+                    continue
+                ts = int(entry.get("ts") or 0)
+                if ts and (now - ts > CACHE_TTL_SECONDS):
+                    continue
+                parts = key.split("|")
+                tgt_plat = parts[0] if parts else ""
+                by_platform[tgt_plat] = by_platform.get(tgt_plat, 0) + 1
+
+                if plat_filter and tgt_plat != plat_filter:
+                    continue
+
+                src = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+                cand = entry.get("candidate") if isinstance(entry.get("candidate"), dict) else {}
+                src_title = str(src.get("title") or (parts[2] if len(parts) > 2 else "")).strip()
+                src_artist = str(src.get("artist") or (parts[3] if len(parts) > 3 else "")).strip()
+                src_isrc = str(src.get("isrc") or (parts[1] if len(parts) > 1 else "")).strip()
+
+                cand_title = str(cand.get("title") or "").strip()
+                cand_artist = str(cand.get("artist") or "").strip()
+
+                if q_filter:
+                    haystack = f"{src_title} {src_artist} {src_isrc} {cand_title} {cand_artist}".lower()
+                    if q_filter not in haystack:
+                        continue
+
+                matched_rows.append(
+                    {
+                        "key": key,
+                        "target_platform": tgt_plat,
+                        "source_title": src_title,
+                        "source_artist": src_artist,
+                        "source_isrc": src_isrc,
+                        "matched_id": str(cand.get("track_id") or ""),
+                        "matched_title": cand_title,
+                        "matched_artist": cand_artist,
+                        "matched_album": str(cand.get("album") or ""),
+                        "matched_duration": str(cand.get("duration") or ""),
+                        "matched_url": str(cand.get("url") or ""),
+                        "score": cand.get("score"),
+                        "confidence": str(cand.get("confidence") or ""),
+                        "match_reason": str(cand.get("match_reason") or ""),
+                        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "",
+                        "_ts": ts,
+                    }
+                )
+
+            matched_rows.sort(key=lambda r: r.get("_ts", 0), reverse=True)
+            total_filtered = len(matched_rows)
+            sliced = [{k: v for k, v in r.items() if k != "_ts"} for r in matched_rows[:cap]]
+            return {
+                "total_cached": total_all,
+                "filtered_count": total_filtered,
+                "by_platform": by_platform,
+                "entries": sliced,
+            }
 
     def clear(self) -> int:
         with self._lock:

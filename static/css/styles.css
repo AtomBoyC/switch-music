@@ -20,6 +20,8 @@
   --kugou-dim: rgba(42, 140, 240, 0.14);
   --applemusic: #fa2d48;
   --applemusic-dim: rgba(250, 45, 72, 0.14);
+  --subsonic: #0ea5e9;
+  --subsonic-dim: rgba(14, 165, 233, 0.14);
   --accent: #3b82f6;
   --accent-dim: rgba(59, 130, 246, 0.15);
   --success: #10b981;
@@ -112,31 +114,14 @@ header {
 
 /* Platform Connection Bar */
 .platform-hub {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
   margin-bottom: 18px;
 }
 
-@media (max-width: 1180px) {
-  .platform-hub {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 860px) {
-  .platform-hub {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .platform-hub {
-    grid-template-columns: 1fr;
-  }
-}
-
 .plat-card {
+  flex: 1 1 215px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -186,6 +171,7 @@ header {
 .logo-qqmusic { background: linear-gradient(135deg, #31c27c, #1e9c5f); color: #041d11; }
 .logo-kugou { background: linear-gradient(135deg, #2a8cf0, #1764c0); }
 .logo-applemusic { background: linear-gradient(135deg, #fa2d48, #a833f0); }
+.logo-subsonic { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
 
 /* Kugou QR login */
 .qr-box {
@@ -418,19 +404,14 @@ input:focus, select:focus, textarea:focus {
 
 /* Target Platform Radio Grid */
 .target-plat-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
 }
 
-@media (max-width: 760px) {
-  .target-plat-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 .target-plat-option {
+  flex: 1 1 200px;
   border: 1.5px solid var(--border);
   background: var(--bg-input);
   border-radius: 11px;
@@ -469,6 +450,10 @@ input:focus, select:focus, textarea:focus {
 .target-plat-option.selected[data-plat="applemusic"] {
   border-color: var(--applemusic);
   background: var(--applemusic-dim);
+}
+.target-plat-option.selected[data-plat="subsonic"] {
+  border-color: var(--subsonic);
+  background: var(--subsonic-dim);
 }
 
 /* Buttons */
@@ -546,6 +531,14 @@ input:focus, select:focus, textarea:focus {
   color: #fff;
 }
 .btn-applemusic:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-subsonic {
+  background: var(--subsonic);
+  color: #fff;
+}
+.btn-subsonic:hover:not(:disabled) {
   filter: brightness(1.1);
 }
 
@@ -881,6 +874,10 @@ tr:hover td {
   border-radius: 16px;
   padding: 20px 22px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+}
+
+.modal-card.modal-card-wide {
+  max-width: 900px;
 }
 
 .modal-body {

@@ -5,18 +5,31 @@
 [![Docker Hub](https://img.shields.io/docker/pulls/atomboyc/switch-music?logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/atomboyc/switch-music)
 [![Arch](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-0db7ed?logo=linux&logoColor=white)](https://hub.docker.com/r/atomboyc/switch-music)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776ab?logo=python&logoColor=white)](./requirements.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 [简体中文](./README.md) | **English** | [Docker Hub Quick Guide](./DOCKER.md)
 
-Self-hosted, unlimited **multi-platform playlist migration, pre-match review, smart deduplication, and scheduled incremental sync** workbench:
+Self-hosted, unlimited **multi-platform playlist migration, pre-match review, smart deduplication, and multi-mode scheduled sync** workbench (with built-in **English ⇄ 简体中文** Web UI toggle):
 
-> **Spotify ⇄ YouTube Music ⇄ NetEase Cloud Music (网易云音乐) ⇄ QQ Music (QQ音乐) ⇄ Kugou Music (酷狗音乐) ⇄ Apple Music** — plus **CSV / TSV / JSON / Plain-Text** import & export.
+> **Spotify ⇄ YouTube Music ⇄ NetEase Cloud Music (网易云音乐) ⇄ QQ Music (QQ音乐) ⇄ Kugou Music (酷狗音乐) ⇄ Apple Music ⇄ Navidrome / Subsonic**
+>
+> Plus **Qishui / Soda Music (汽水音乐)** no-login share URL import, and **CSV / TSV / M3U8 (`#EXTM3U`) / JSON / Plain-Text** import & export.
 
-All account credentials, OAuth tokens, match caches, and history stay **100% locally inside your own `data/` directory (or `/data` Docker volume)** — zero track limits, zero cloud middlemen, zero credential uploads.
+All account credentials, OAuth tokens, Subsonic logins, match caches, and history stay **100% locally inside your own `data/` directory (or `/data` Docker volume)** — zero track limits, zero cloud middlemen, zero credential uploads.
 
 ---
 
-## 📊 6-Platform Capability Matrix
+## 📸 Screenshots
+
+| English Web UI & Navidrome / Subsonic Hub | Pre-Match Confidence Review & Manual Override |
+| :---: | :---: |
+| ![English Workbench & Navidrome](./docs/screenshots/workbench-en.png) | ![Pre-Match Review](./docs/screenshots/prematch-review.png) |
+| **3-Mode Scheduled Sync & Push Notification Guardian** | **Visual Match Cache Inspector & Single-Entry Editor** |
+| ![Sync & Push Guardian](./docs/screenshots/sync-guardian.png) | ![Match Cache Inspector](./docs/screenshots/cache-inspector.png) |
+
+---
+
+## 📊 Platform Capability Matrix
 
 | Platform | Public URL Import (No Login) | Account Auth Method | Read Playlists & Liked | Target Search & Matching | Create / Append / Like | Playlist Deduplication |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -25,31 +38,38 @@ All account credentials, OAuth tokens, match caches, and history stay **100% loc
 | **NetEase (网易云)** | ✅ Playlist URL / `163cn.tv` (no 1k cap) | Browser `Copy as cURL` / Cookie | ✅ Playlists + `Liked` | ✅ Pure-Python `weapi` | ✅ / ✅ / ✅ | ✅ Scan + Remove |
 | **QQ Music (QQ音乐)** | ✅ Playlist URL / `c6.y.qq.com` (paginated) | Browser `Copy as cURL` / Cookie | ✅ Playlists + `Liked` | ✅ `musicu.fcg` gateway | ✅ / ✅ / ✅ | ✅ Scan + Remove |
 | **Kugou (酷狗音乐)** | ✅ `gcid_...` URL / short link / `collection_...` | **Kugou App QR Scan** (or client token) | ✅ Playlists + `Liked` | ✅ Client gateway search | ✅ / ✅ / ✅ | ✅ Scan + Remove |
-| **Apple Music** | ✅ Public playlist / album / `apple.co` (with ISRC) | Web `Copy as cURL` (**no $99 dev account**) | ✅ Library playlists + songs | ✅ Includes **ISRC** lookup | ✅ / ✅ / ✅ (Add + Love) | 🔍 Scan only¹ |
-| **CSV / JSON / Text** | ✅ Multi-file merge (Exportify / TuneMyMusic / Soundiiz) | Local offline parser (UTF-8 / GB18030) | — | — | ✅ Export UTF-8 BOM `.csv` | ✅ Source list dedupe |
+| **Apple Music** | ✅ Public playlist / album / `apple.co` (with ISRC) | Web `Copy as cURL` (**no \$99 dev account**) | ✅ Library playlists + songs | ✅ Includes **ISRC** lookup | ✅ / ✅ / ✅ (Add + Love) | 🔍 Scan only¹ |
+| **Navidrome / Subsonic** | — (Private self-hosted library) | Server URL + User/Pass (`MD5(pass+salt)`) | ✅ Playlists + `⭐ Starred` | ✅ `search3` + **OpenSubsonic ISRC** | ✅ / ✅ / ✅ (`star`) | ✅ Scan + Descending index remove |
+| **Qishui / Soda (汽水)** | ✅ `qishui.douyin.com/s/...` share link | No-login SSR parser | — | — | — (Import source to any target) | ✅ Source list dedupe |
+| **CSV / M3U8 / JSON / Text** | ✅ Multi-file merge (Exportify / Navidrome / Soundiiz) | Local offline parser (UTF-8 / GB18030) | — | — | ✅ Export `.csv` / `#EXTM3U .m3u8` / `.json` | ✅ Source list dedupe |
 
-> ¹ **Note**: Apple Music's web API (`amp-api`) does not expose an endpoint to delete individual tracks from library playlists; duplicates are detected and grouped so you can remove them in the Music app. Except for Spotify's official Web API, other adapters rely on web/client endpoints that may require updates if upstream platforms change.
+> ¹ **Note**: Apple Music's web API (`amp-api`) does not expose an endpoint to delete individual tracks from library playlists; duplicates are detected and grouped so you can remove them in the Music app. Except for Spotify's official Web API and the open Subsonic / OpenSubsonic standard, other streaming adapters rely on web/client endpoints that may require updates if upstream services change.
 
 ---
 
 ## ✨ Key Features
 
-1. **Any-to-Any Migration & Full-Length Public URL Import**
-   - Paste public playlist URLs without logging into the source platform: bypasses NetEase's 10/1,000-track web truncation via full `trackIds` batching, paginates large QQ Music playlists, decodes Kugou Base-35 `gcid_` share codes locally, and scrapes/caches Apple Music's public web token automatically while preserving **ISRC** codes.
-   - Drag-and-drop multiple `.csv`, `.tsv`, or `.json` files (compatible with Exportify, TuneMyMusic, Soundiiz) or paste `Artist - Title` plain-text lists.
-2. **Multi-Dimensional Scoring & Pre-Match Review Workbench**
+1. **Streaming + Self-Hosted NAS Music Unified (8 Sources × 7 Full Read/Write Targets)**
+   - **No-Login Public URL Import**: Paste share links directly — bypasses NetEase's 10/1,000-track web truncation via full `trackIds` batching, paginates large QQ Music playlists, decodes Kugou Base-35 `gcid_` codes locally, auto-fetches Apple Music's public web token with **ISRC** metadata, and parses Qishui (`qishui.douyin.com`) SSR share pages.
+   - **Navidrome / OpenSubsonic Native Integration**: Connects to Navidrome, Airsonic, Gonic, Ampache, LMS, or Funkwhale using Subsonic API `v1.16.1` token+salt authentication — bridge cloud streaming playlists directly with your lossless NAS library.
+   - **Multi-Format Import & Universal Backup**: Drag-and-drop `.csv`, `.tsv`, `.m3u8` / `.m3u` (`#EXTM3U`), or `.json` files, and export any playlist or unmatched list to **UTF-8 BOM `.csv`**, **`#EXTM3U` `.m3u8`** (preserving `#EXTINF` duration, `#EXTALB`, and Subsonic file paths), or **Portable `.json`**.
+
+2. **Multi-Dimensional Scoring, Pre-Match Review & Visual Cache Inspector**
    - Scores candidates (0–100) using **ISRC**, Simplified/Traditional Chinese normalization, multi-artist overlap, album similarity, and duration proximity (`±3s`), while **penalizing unintended Karaoke / Instrumental / Cover / DJ / Sped-up / Live versions**.
-   - Run **Pre-Match Review** before writing a single song: filter by High Confidence (`≥65`), Low Confidence, or Unmatched, preview tracks, and manually search/override matches in place.
-3. **Order-Preserving Concurrency, Crash Recovery & Safe Dedupe**
-   - Sliding-window `ThreadPoolExecutor` (1–6 workers) accelerates matching 3–5× while **preserving 100% of original playlist order**, paired with sequential retrying writes.
-   - Local 30-day `match_cache.json` (up to 15,000 entries) gives `0ms` hits across playlists and retries.
-   - Pre-reads existing target tracks (without 2,000-song caps) before appending; **fails safely without writing** if reading target state errors out (e.g., expired session), preventing duplicate floods.
-   - Automatic exponential backoff on HTTP `429/502/503/504` and throttling codes, plus automatic disk checkpoints every 100 tracks for one-click resume after restarts.
-4. **Duplicate Group Cleaner, CSV Backup & Scheduled Sync**
-   - Scan playlists in **Standard** (ID + normalized title/artist), **Strict** (ID only), or **Deep** (title + `±3s` duration) mode, listen inline, and pick exactly which copy to keep.
-   - Export any playlist or unmatched list to Excel-friendly UTF-8 BOM `.csv`, or configure background **scheduled incremental sync** rules.
-5. **Local-First Security**
-   - Enforces `0700` / `0600` permissions on `data/`, DNS-rebinding `Host` allowlist, state-changing `Origin` CSRF checks, and optional constant-time HTTP Basic auth (`SWITCH_MUSIC_PASSWORD`) for NAS/LAN deployments.
+   - Run **Pre-Match Review** before writing a single song: filter by High Confidence (`≥65`), Low Confidence, or Unmatched, preview tracks inline, and manually search/override matches.
+   - **Persistent Manual Overrides & Cache Inspector**: Manual selections are saved permanently (`confidence: manual`) in `match_cache.json` for future syncs, and the **Match Cache Inspector** lets you search, inspect, and delete individual cached mappings without wiping the entire cache.
+
+3. **3-Mode Scheduled Sync Engine + Circuit Breaker + Push Notifications**
+   - **Three Sync Strategies**:
+     - **➕ Incremental Append (`append`)**: One-way sync of newly added tracks.
+     - **🪞 Safe Mirror (`mirror`)**: Propagates source removals to the target playlist with a two-layer safety shield — **Empty-Snapshot Guard** (never wipes target if source returns 0 tracks) + configurable **Max Removal Ratio Circuit Breaker** (defaults to `30%` max per run).
+     - **⇄ Two-Way Merge (`two_way`)**: Echo-free bidirectional sync keeping two playlists across different platforms in lockstep.
+   - **🔔 Push Notification Guardian**: Built-in **Webhook** (auto-formats **Feishu / Lark, DingTalk, WeCom, Discord, Slack**, or generic JSON), **Bark (iOS)**, and **Telegram Bot** alerts for headless NAS runs.
+
+4. **Order-Preserving Concurrency, Crash Recovery, Dedupe & Local-First Security**
+   - Sliding-window `ThreadPoolExecutor` (1–6 workers) accelerates matching 3–5× while **preserving 100% of original playlist order**, backed by exponential backoff on HTTP `429/502/503/504` and disk checkpoints every 100 tracks.
+   - Scan playlists for duplicates in **Standard**, **Strict**, or **Deep** (`±3s`) mode and choose exactly which copy to keep.
+   - Enforces `0700` / `0600` permissions on `data/`, masks saved secrets (`********`) in API responses, and protects NAS deployments with a DNS-rebinding `Host` allowlist, `Origin` CSRF checks, and constant-time HTTP Basic auth (`SWITCH_MUSIC_PASSWORD`).
 
 ---
 
@@ -57,9 +77,9 @@ All account credentials, OAuth tokens, match caches, and history stay **100% loc
 
 ### Option 1: Docker / NAS (Recommended)
 
-Multi-arch images (`linux/amd64` & `linux/arm64` — Intel/AMD, Apple Silicon, Raspberry Pi, Synology, QNAP, Unraid) are published simultaneously to:
+Multi-arch images (`linux/amd64` & `linux/arm64` — Intel/AMD, Apple Silicon, Raspberry Pi, Synology, QNAP, fnOS, Unraid) are published simultaneously to:
 
-- **Docker Hub**: `atomboyc/switch-music:latest` (or versioned tags like `atomboyc/switch-music:2.2.0`)
+- **Docker Hub**: `atomboyc/switch-music:latest` (or versioned tags like `atomboyc/switch-music:2.3.0`)
 - **GitHub Container Registry**: `ghcr.io/atomboyc/switch-music:latest`
 
 #### Localhost-only deployment
@@ -99,6 +119,10 @@ docker run -d --name switch-music \
 | `SWITCH_MUSIC_PASSWORD` | *(empty)* | HTTP Basic auth password (enter **any username** + this password; `/api/health` stays unauthenticated for container healthchecks). |
 | `SWITCH_MUSIC_ALLOWED_HOSTS` | *(empty)* | Comma-separated LAN IPs/domains allowed in the `Host` header (e.g. `192.168.1.10,music.example.com`), or `*` (use only with a password). |
 | `SPOTIFY_REDIRECT_URI` | `http://127.0.0.1:8765/api/spotify/callback` | Spotify OAuth redirect URI. Spotify only permits plain `http://` on `127.0.0.1`; on remote servers use an `https://` reverse-proxy URL matching your Spotify Dashboard. |
+| `SUBSONIC_URL` / `SUBSONIC_USER` / `SUBSONIC_PASSWORD` | *(empty)* | Optional default Navidrome / Subsonic server credentials (can also be configured in the Web UI). |
+| `SWITCH_MUSIC_WEBHOOK_URL` | *(empty)* | Optional Webhook URL for sync notifications (Feishu / DingTalk / WeCom / Discord / Slack / Custom JSON). |
+| `SWITCH_MUSIC_BARK_URL` | *(empty)* | Optional iOS Bark push URL or device key (`https://api.day.app/<key>`). |
+| `SWITCH_MUSIC_TG_BOT_TOKEN` / `SWITCH_MUSIC_TG_CHAT_ID` | *(empty)* | Optional Telegram Bot token and target Chat ID for sync notifications. |
 | `PORT` | `8765` | Listening port inside the container / process. |
 | `HOST` | `127.0.0.1` (local) / `0.0.0.0` (Docker) | Bind address. |
 | `SWITCH_MUSIC_DATA_DIR` | `./data` (local) / `/data` (Docker) | Persistent storage directory. |
@@ -129,24 +153,26 @@ python app.py                    # Opens on http://127.0.0.1:8765
 
 ## 🔑 Connecting Music Accounts
 
-1. **Spotify (OAuth 2.0)**:
+1. **Navidrome / Subsonic (Self-Hosted NAS Music Server)**:
+   - Click the **Navidrome** card in the top bar, enter your server URL (e.g. `http://192.168.1.10:4533` or `https://music.example.com`), username, and password. Uses Subsonic API `v1.16.1` salted MD5 authentication (`MD5(password + salt)`).
+2. **Spotify (OAuth 2.0)**:
    - Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) (requires an active **Spotify Premium** subscription on the developer account).
    - Set **Redirect URIs** to `http://127.0.0.1:8765/api/spotify/callback` (**must** be `127.0.0.1`, never `localhost`), and check **Web API**.
    - Under **Settings → User Management**, add your Spotify account name and email to the allowlist.
    - Paste **Client ID** & **Client Secret** into Switch Music and authorize. *(Note: Under Spotify's February 2026 Development Mode rules, apps can only read items of playlists you own or collaborate on — duplicate third-party playlists to your own account in Spotify first, or export via [Exportify](https://exportify.net/).)*
-2. **Apple Music (No Paid Developer Account Needed)**:
+3. **Apple Music (No Paid Developer Account Needed)**:
    - Sign in at [https://music.apple.com](https://music.apple.com) (active Apple Music subscription required for personal library access).
    - Open DevTools (`F12` / `Cmd+Option+I`) → **Network** → filter by `amp-api.music.apple.com` and click **Library → Playlists**.
    - Right-click any `amp-api.music.apple.com` request (carrying `media-user-token`) → **Copy → Copy as cURL**, and paste into Switch Music.
-3. **Kugou Music (QR Code Login)**:
+4. **Kugou Music (QR Code Login)**:
    - Click the **Kugou** card → generate QR code → scan and confirm with the **Kugou Music mobile app**.
-4. **YouTube Music / NetEase / QQ Music (`Copy as cURL`)**:
+5. **YouTube Music / NetEase / QQ Music (`Copy as cURL`)**:
    - Sign in at `music.youtube.com` (filter `browse`, needs `SAPISID`), `music.163.com` (filter `weapi`, needs `MUSIC_U`), or `y.qq.com` (filter `musicu.fcg`, needs `uin` + `qm_keyst`/`qqmusic_key`).
    - Right-click an authenticated API request → **Copy → Copy as cURL** (do **not** use plain `Copy as fetch`, which strips cookies) and paste into Switch Music. Also accepts `Copy as fetch (Node.js)`, raw headers, Cookie-Editor JSON, and Netscape `cookies.txt`.
 
 ---
 
-## 🛠️ Development & Testing
+## 🔧 Development & Testing
 
 ```bash
 # Run unit & integration tests
@@ -154,10 +180,13 @@ python app.py                    # Opens on http://127.0.0.1:8765
 
 # Healthcheck endpoint
 curl http://127.0.0.1:8765/api/health
+# {"status":"ok","version":"2.3.0"}
 ```
 
 ---
 
-## ⚠️ Disclaimer
+## 📜 License & Disclaimer
+
+Released under the **[MIT License](./LICENSE)**.
 
 Switch Music is a personal, self-hosted playlist metadata utility. It **does not** download, decrypt, or redistribute audio streams. All account credentials remain strictly on your own machine. Please use reasonable concurrency and respect each music service's Terms of Use.

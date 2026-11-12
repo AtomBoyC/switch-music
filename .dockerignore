@@ -14,4 +14,5 @@ __pycache__
 start.command
 docker-compose.yml
 *.md
+docs
 tests

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Switch Music 2.0 · 全平台歌单互转与去重工作台</title>
+  <title>Switch Music v2.3 · 全平台歌单互转、去重与同步工作台</title>
   <link rel="stylesheet" href="/static/css/styles.css" />
 </head>
 <body>
@@ -15,17 +15,20 @@
         <div>
           <h1>
             <span>Switch Music</span>
-            <span class="version-tag">v2.0 全平台版</span>
+            <span class="version-tag" data-i18n="version_tag">v2.3 全平台版</span>
           </h1>
-          <p>本地无限制歌单互转 · 预匹配人工微调 · 歌单去重 · 定时增量同步（Spotify ⇄ YouTube Music ⇄ 网易云音乐 ⇄ QQ音乐 ⇄ 酷狗音乐 ⇄ Apple Music）</p>
+          <p data-i18n="brand_subtitle">本地无限制歌单互转 · 预匹配人工微调 · 歌单去重 · 增量/镜像/双向同步（Spotify ⇄ YouTube Music ⇄ 网易云 ⇄ QQ音乐 ⇄ 酷狗 ⇄ Apple Music ⇄ Navidrome + 汽水音乐导入）</p>
         </div>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="btn btn-secondary" style="padding: 7px 13px; font-size: 12.5px;" onclick="refreshAllPlatformsStatus(true)">
+        <button id="langToggleBtn" class="btn btn-secondary" style="padding: 7px 13px; font-size: 12.5px;" onclick="toggleLanguage()" data-i18n="lang_toggle_btn">
+          🌐 English
+        </button>
+        <button class="btn btn-secondary" style="padding: 7px 13px; font-size: 12.5px;" onclick="refreshAllPlatformsStatus(true)" data-i18n="btn_refresh_platforms">
           🔄 刷新平台状态
         </button>
-        <button class="btn btn-secondary" style="padding: 7px 13px; font-size: 12.5px;" onclick="clearMatchCache()">
-          ⚡ 清理匹配缓存
+        <button class="btn btn-secondary" style="padding: 7px 13px; font-size: 12.5px;" onclick="openCacheModal()" data-i18n="btn_cache_manager">
+          ⚡ 匹配缓存管理
         </button>
       </div>
     </header>
@@ -37,7 +40,7 @@
           <div class="plat-logo logo-ytm">▶</div>
           <div>
             <div class="plat-title">YouTube Music</div>
-            <div id="platSub_ytm" class="plat-sub">检测中...</div>
+            <div id="platSub_ytm" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -48,7 +51,7 @@
           <div class="plat-logo logo-spotify">S</div>
           <div>
             <div class="plat-title">Spotify</div>
-            <div id="platSub_spotify" class="plat-sub">检测中...</div>
+            <div id="platSub_spotify" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -58,8 +61,8 @@
         <div class="plat-info">
           <div class="plat-logo logo-netease">云</div>
           <div>
-            <div class="plat-title">网易云音乐</div>
-            <div id="platSub_netease" class="plat-sub">检测中...</div>
+            <div id="platTitle_netease" class="plat-title">网易云音乐</div>
+            <div id="platSub_netease" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -69,8 +72,8 @@
         <div class="plat-info">
           <div class="plat-logo logo-qqmusic">Q</div>
           <div>
-            <div class="plat-title">QQ音乐</div>
-            <div id="platSub_qqmusic" class="plat-sub">检测中...</div>
+            <div id="platTitle_qqmusic" class="plat-title">QQ音乐</div>
+            <div id="platSub_qqmusic" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -80,8 +83,8 @@
         <div class="plat-info">
           <div class="plat-logo logo-kugou">K</div>
           <div>
-            <div class="plat-title">酷狗音乐</div>
-            <div id="platSub_kugou" class="plat-sub">检测中...</div>
+            <div id="platTitle_kugou" class="plat-title">酷狗音乐</div>
+            <div id="platSub_kugou" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -92,7 +95,18 @@
           <div class="plat-logo logo-applemusic">♪</div>
           <div>
             <div class="plat-title">Apple Music</div>
-            <div id="platSub_applemusic" class="plat-sub">检测中...</div>
+            <div id="platSub_applemusic" class="plat-sub" data-i18n="plat_checking">检测中...</div>
+          </div>
+        </div>
+        <span class="status-dot"></span>
+      </div>
+
+      <div id="platCard_subsonic" class="plat-card" onclick="toggleAuthDrawer('subsonic')">
+        <div class="plat-info">
+          <div class="plat-logo logo-subsonic">N</div>
+          <div>
+            <div class="plat-title">Navidrome</div>
+            <div id="platSub_subsonic" class="plat-sub" data-i18n="plat_checking">检测中...</div>
           </div>
         </div>
         <span class="status-dot"></span>
@@ -107,10 +121,10 @@
           <span id="authDrawerTitle">配置账号连接</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <button id="disconnectPlatBtn" class="btn btn-danger" style="padding: 5px 12px; font-size: 12px; display: none;" onclick="disconnectCurrentPlatform()">
+          <button id="disconnectPlatBtn" class="btn btn-danger" style="padding: 5px 12px; font-size: 12px; display: none;" onclick="disconnectCurrentPlatform()" data-i18n="btn_disconnect">
             断开连接 / 清除凭据
           </button>
-          <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="closeAuthDrawer()">
+          <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="closeAuthDrawer()" data-i18n="btn_collapse_drawer">
             收起面板 ✕
           </button>
         </div>
@@ -121,13 +135,12 @@
         <!-- Kugou QR-code login (scan with the Kugou mobile app) -->
         <div id="kugouQrBox" class="qr-box" style="display: none;">
           <div class="qr-box-text">
-            <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">📱 推荐：酷狗 App 扫码登录</div>
-            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
-              打开手机「酷狗音乐」App → 右上角扫一扫，扫描右侧二维码并确认登录。<br />
-              登录凭据仅保存在本地 <code>data/</code> 目录。
+            <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;" data-i18n="kugou_qr_title">📱 推荐：酷狗 App 扫码登录</div>
+            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;" data-i18n="kugou_qr_desc">
+              打开手机「酷狗音乐」App → 右上角扫一扫，扫描右侧二维码并确认登录。登录凭据仅保存在本地 data/ 目录。
             </div>
             <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <button id="kugouQrBtn" class="btn btn-kugou" onclick="startKugouQrLogin()">生成登录二维码</button>
+              <button id="kugouQrBtn" class="btn btn-kugou" onclick="startKugouQrLogin()" data-i18n="btn_kugou_qr">生成登录二维码</button>
               <span id="kugouQrMsg" style="font-size: 13px; color: var(--text-muted);"></span>
             </div>
           </div>
@@ -137,9 +150,9 @@
           <summary id="cookieGuideSummary">💡 15 秒获取连接凭据方法（点击展开/收起）</summary>
           <div id="cookieGuideBody" style="margin-top: 8px;"></div>
         </details>
-        <textarea id="cookieRawInput" placeholder="在此粘贴右键 Copy → Copy as cURL 的内容（或 Request Headers / Cookie 字符串 / cookies.txt）"></textarea>
+        <textarea id="cookieRawInput" data-i18n-placeholder="cookie_placeholder" placeholder="在此粘贴右键 Copy → Copy as cURL 的内容（或 Request Headers / Cookie 字符串 / cookies.txt）"></textarea>
         <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button id="saveCookieAuthBtn" class="btn btn-primary" onclick="submitCookieAuth()">验证并保存连接</button>
+          <button id="saveCookieAuthBtn" class="btn btn-primary" onclick="submitCookieAuth()" data-i18n="btn_save_cookie">验证并保存连接</button>
           <span id="cookieAuthMsg" style="font-size: 13px; color: var(--text-muted);"></span>
         </div>
       </div>
@@ -147,7 +160,7 @@
       <!-- Spotify OAuth Form -->
       <div id="spotifyAuthForm" style="display: none;">
         <details class="guide" open>
-          <summary>💡 如何获取 Spotify Developer Client ID &amp; Secret？（支持双向读写歌单）</summary>
+          <summary data-i18n="sp_guide_summary">💡 如何获取 Spotify Developer Client ID &amp; Secret？（支持双向读写歌单）</summary>
           <ol>
             <li>访问 <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: #34d399;">Spotify Developer Dashboard</a> 并点击 <strong>Create app</strong>。</li>
             <li>在 <strong>Redirect URIs</strong> 中填入：<code id="spRedirectUri">http://127.0.0.1:8765/api/spotify/callback</code> 并保存。</li>
@@ -165,18 +178,48 @@
           </div>
         </div>
         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-          <button class="btn btn-spotify" onclick="saveSpotifyConfigAndLogin()">保存并前往 Spotify OAuth 授权登录</button>
+          <button class="btn btn-spotify" onclick="saveSpotifyConfigAndLogin()" data-i18n="btn_sp_oauth">保存并前往 Spotify OAuth 授权登录</button>
           <span id="spScopeHint" style="font-size: 12.5px; color: var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <!-- Navidrome / Subsonic Server Form -->
+      <div id="subsonicAuthForm" style="display: none;">
+        <details class="guide" open>
+          <summary data-i18n="subsonic_guide_summary">💡 连接自建 Navidrome / Subsonic / OpenSubsonic 音乐服务器（支持双向歌单读写与去重）</summary>
+          <ol>
+            <li>兼容所有支持 Subsonic REST API (<code>v1.16.1</code>) 的自建 NAS 音乐库：<strong>Navidrome</strong>、Airsonic、Gonic、LMS、Ampache 等。</li>
+            <li>支持直接将流媒体歌单匹配同步进您的私有无损音乐库歌单或 <strong>❤️ Starred</strong>，也可从私有库反向导出至云平台或 <code>.m3u8</code>。</li>
+            <li>采用标准 Subsonic 盐值 MD5 Token 认证，凭据仅以 <code>0600</code> 权限保存在本地 <code>data/subsonic_auth.json</code>。</li>
+          </ol>
+        </details>
+        <div class="row-3">
+          <div>
+            <label data-i18n="subsonic_url_label">服务器地址 (Server URL)</label>
+            <input type="text" id="subsonicUrlInput" placeholder="http://192.168.1.10:4533" />
+          </div>
+          <div>
+            <label data-i18n="subsonic_user_label">用户名 (Username)</label>
+            <input type="text" id="subsonicUserInput" placeholder="admin" />
+          </div>
+          <div>
+            <label data-i18n="subsonic_pass_label">密码 (Password · 采用 Subsonic 盐值 Token 认证)</label>
+            <input type="password" id="subsonicPassInput" placeholder="输入登录密码" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button id="saveSubsonicBtn" class="btn btn-subsonic" onclick="saveSubsonicConfig()" data-i18n="btn_save_subsonic">验证并连接 Navidrome / Subsonic</button>
+          <span id="subsonicAuthMsg" style="font-size: 13px; color: var(--text-muted);"></span>
         </div>
       </div>
     </section>
 
     <!-- Primary Workspace Navigation -->
     <nav class="main-nav">
-      <button class="nav-tab active" data-view="migrate" onclick="switchMainView('migrate')">⇄ 跨平台歌单互转</button>
-      <button class="nav-tab" data-view="dedupe" onclick="switchMainView('dedupe')">🧹 全平台歌单去重</button>
-      <button class="nav-tab" data-view="export" onclick="switchMainView('export')">📤 歌单导出备份</button>
-      <button class="nav-tab" data-view="sync" onclick="switchMainView('sync')">⏱️ 定时同步 &amp; 迁移历史</button>
+      <button class="nav-tab active" data-view="migrate" onclick="switchMainView('migrate')" data-i18n="nav_migrate">⇄ 跨平台歌单互转</button>
+      <button class="nav-tab" data-view="dedupe" onclick="switchMainView('dedupe')" data-i18n="nav_dedupe">🧹 全平台歌单去重</button>
+      <button class="nav-tab" data-view="export" onclick="switchMainView('export')" data-i18n="nav_export">📤 多格式导出备份</button>
+      <button class="nav-tab" data-view="sync" onclick="switchMainView('sync')" data-i18n="nav_sync">⏱️ 定时同步 &amp; 通知守护</button>
     </nav>
 
     <!-- ================================================================== -->
@@ -188,43 +231,45 @@
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">1</span>
-            <span>加载源歌单（支持网易云 / QQ音乐 / 酷狗 / Apple Music / Spotify / YouTube Music / CSV / 文本）</span>
+            <span data-i18n="step1_title">加载源歌单（支持网易云 / QQ音乐 / 酷狗 / 汽水音乐 / Apple Music / Spotify / YTM / Navidrome / CSV / M3U8）</span>
           </div>
-          <span id="loadedCounter" style="font-size: 13px; color: var(--spotify); font-weight: 600;">尚未加载曲目</span>
+          <span id="loadedCounter" style="font-size: 13px; color: var(--spotify); font-weight: 600;" data-i18n="loaded_none">尚未加载曲目</span>
         </div>
 
         <div class="tabs">
-          <button id="srcTab_url" class="tab-btn active" onclick="switchSourceTab('url')">🔗 链接直读（网易云/QQ/酷狗/Apple/YTM 免登录）</button>
-          <button id="srcTab_account" class="tab-btn" onclick="switchSourceTab('account')">☁️ 从已连接账号选择歌单</button>
-          <button id="srcTab_csv" class="tab-btn" onclick="switchSourceTab('csv')">📂 上传 CSV / JSON 文件</button>
-          <button id="srcTab_text" class="tab-btn" onclick="switchSourceTab('text')">📝 粘贴纯文本歌单</button>
+          <button id="srcTab_url" class="tab-btn active" onclick="switchSourceTab('url')" data-i18n="src_tab_url">🔗 链接直读（网易云/QQ/酷狗/汽水/Apple/YTM 免登录）</button>
+          <button id="srcTab_account" class="tab-btn" onclick="switchSourceTab('account')" data-i18n="src_tab_account">☁️ 从已连接账号选择歌单</button>
+          <button id="srcTab_csv" class="tab-btn" onclick="switchSourceTab('csv')" data-i18n="src_tab_csv">📂 上传 CSV / M3U8 / JSON</button>
+          <button id="srcTab_text" class="tab-btn" onclick="switchSourceTab('text')" data-i18n="src_tab_text">📝 粘贴纯文本歌单</button>
         </div>
 
         <!-- Source Mode: URL Direct Import -->
         <div id="sourcePane_url">
           <details class="guide">
-            <summary>💡 支持哪些歌单分享链接？（点击查看示例）</summary>
+            <summary data-i18n="url_guide_summary">💡 支持哪些歌单分享链接？（点击查看示例）</summary>
             <ol>
               <li><strong>网易云音乐</strong>：支持网页链接 <code>https://music.163.com/#/playlist?id=...</code> 或 App 分享文本（含 <code>163cn.tv</code> 短链），自动突破 1000 首曲目上限读取全量歌曲！</li>
               <li><strong>QQ音乐</strong>：支持 <code>https://y.qq.com/n/ryqq/playlist/...</code> 或手机端分享短链（<code>c6.y.qq.com/base/fcgi-bin/u?...</code>）。</li>
               <li><strong>酷狗音乐</strong>：支持网页链接 <code>https://www.kugou.com/songlist/gcid_.../</code>、App 分享短链或 <code>collection_3_..._0</code> 歌单 ID。</li>
+              <li><strong>汽水音乐</strong>：支持公开歌单分享短链 <code>https://qishui.douyin.com/s/...</code>、App 分享口令或 <code>music.douyin.com/qishui/share/playlist?playlist_id=...</code>。</li>
               <li><strong>Apple Music</strong>：支持公开歌单 / 专辑链接 <code>https://music.apple.com/cn/playlist/.../pl....</code> 与 <code>apple.co</code> 短链（自动提取 ISRC 精准匹配）。</li>
               <li><strong>YouTube Music</strong>：支持公开歌单链接 <code>https://music.youtube.com/playlist?list=PL...</code>。</li>
-              <li>若歌单被设为「仅自己可见（私密）」或「我喜欢的音乐」，请点击顶部对应平台卡片登录后在「从已连接账号选择歌单」中拉取。</li>
+              <li>若歌单被设为「私密」或「我喜欢的音乐 / Starred」，请点击顶部对应平台卡片登录后在「从已连接账号选择歌单」中拉取。</li>
             </ol>
           </details>
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <select id="urlPlatformSelect" style="width: 190px; flex-shrink: 0;">
-              <option value="auto">✨ 自动识别平台</option>
+            <select id="urlPlatformSelect" style="width: 205px; flex-shrink: 0;">
+              <option value="auto" data-i18n="opt_auto_detect">✨ 自动识别平台</option>
               <option value="netease">网易云音乐</option>
               <option value="qqmusic">QQ音乐</option>
               <option value="kugou">酷狗音乐</option>
+              <option value="qishui" data-i18n="opt_qishui_url">汽水音乐（免登录分享链接）</option>
               <option value="applemusic">Apple Music</option>
               <option value="ytm">YouTube Music</option>
-              <option value="spotify">Spotify (需已登录)</option>
+              <option value="spotify" data-i18n="opt_spotify_login">Spotify (需已登录)</option>
             </select>
-            <input type="text" id="playlistUrlInput" style="flex: 1; min-width: 240px;" placeholder="粘贴网易云 / QQ音乐 / 酷狗 / Apple Music / YouTube Music 歌单分享链接、分享文本或歌单 ID..." />
-            <button id="importUrlBtn" class="btn btn-primary" onclick="importFromUrl()">📥 解析歌单</button>
+            <input type="text" id="playlistUrlInput" style="flex: 1; min-width: 240px;" data-i18n-placeholder="url_input_placeholder" placeholder="粘贴网易云 / QQ音乐 / 酷狗 / 汽水音乐 / Apple Music / YouTube Music 歌单分享链接、分享口令或 ID..." />
+            <button id="importUrlBtn" class="btn btn-primary" onclick="importFromUrl()" data-i18n="btn_parse_url">📥 解析歌单</button>
           </div>
         </div>
 
@@ -232,7 +277,7 @@
         <div id="sourcePane_account" style="display: none;">
           <div class="row">
             <div>
-              <label>选择源平台（需已在顶部连接）</label>
+              <label data-i18n="lbl_select_src_plat">选择源平台（需已在顶部连接）</label>
               <select id="srcAccountPlatformSelect" onchange="loadSourceAccountPlaylists()">
                 <option value="spotify">Spotify（含 ❤️ Liked Songs &amp; 私密歌单）</option>
                 <option value="netease">网易云音乐（含 ❤️ 我喜欢的音乐 &amp; 收藏歌单）</option>
@@ -240,34 +285,36 @@
                 <option value="kugou">酷狗音乐（含 ❤️ 我喜欢 &amp; 自建歌单）</option>
                 <option value="applemusic">Apple Music（含资料库 &amp; 资料库歌单）</option>
                 <option value="ytm">YouTube Music（含 ❤️ Liked Music &amp; 歌单）</option>
+                <option value="subsonic">Navidrome / Subsonic（含 ❤️ Starred &amp; 私有库歌单）</option>
               </select>
             </div>
             <div>
-              <label>选择要读取的歌单</label>
+              <label data-i18n="lbl_select_src_playlist">选择要读取的歌单</label>
               <div style="display: flex; gap: 8px;">
                 <select id="srcAccountPlaylistSelect">
                   <option value="">-- 点击右侧刷新拉取歌单 --</option>
                 </select>
-                <button class="btn btn-secondary" onclick="loadSourceAccountPlaylists(true)">🔄 刷新</button>
+                <button class="btn btn-secondary" onclick="loadSourceAccountPlaylists(true)" data-i18n="btn_refresh">🔄 刷新</button>
               </div>
             </div>
           </div>
-          <button id="fetchAccountTracksBtn" class="btn btn-primary" onclick="fetchSelectedAccountPlaylist()">📥 加载选中歌单曲目</button>
+          <button id="fetchAccountTracksBtn" class="btn btn-primary" onclick="fetchSelectedAccountPlaylist()" data-i18n="btn_fetch_account_tracks">📥 加载选中歌单曲目</button>
         </div>
 
-        <!-- Source Mode: CSV / JSON Upload -->
+        <!-- Source Mode: CSV / M3U8 / JSON Upload -->
         <div id="sourcePane_csv" style="display: none;">
           <details class="guide">
-            <summary>💡 免配置导出 Spotify 歌单 CSV 小技巧</summary>
+            <summary data-i18n="csv_guide_summary">💡 支持导出/导入哪些本地歌单文件？</summary>
             <ol>
               <li>打开 <a href="https://exportify.net/" target="_blank" style="color: #34d399; font-weight: 600;">exportify.net</a> 登录 Spotify 即可一键导出任意歌单或 <strong>Liked Songs</strong> 为 <code>.csv</code>。</li>
-              <li>同时也兼容本工具导出的备份 CSV、TuneMyMusic / Soundiiz CSV 以及 JSON 曲目列表。</li>
+              <li>原生支持 <strong>M3U / M3U8 (<code>#EXTM3U</code>)</strong> 播放列表（可直接从 Jellyfin、Navidrome、foobar2000、MusicBee 拖入导入）。</li>
+              <li>同时兼容本工具导出的备份 CSV / JSON、TuneMyMusic / Soundiiz CSV 以及纯文本文件。</li>
             </ol>
           </details>
           <div id="csvDropzone" class="dropzone" onclick="document.getElementById('csvFileInput').click()">
-            <input type="file" id="csvFileInput" accept=".csv,.tsv,.json,.txt" multiple style="display: none" onchange="handleCsvFiles(this.files)" />
-            <h4>📥 点击选择或将 CSV / TSV / JSON 歌单文件拖拽至此</h4>
-            <p>支持单个或多个文件同时导入（无曲目数量上限）</p>
+            <input type="file" id="csvFileInput" accept=".csv,.tsv,.json,.txt,.m3u,.m3u8" multiple style="display: none" onchange="handleCsvFiles(this.files)" />
+            <h4 data-i18n="dropzone_title">📥 点击选择或将 CSV / M3U8 / TSV / JSON 歌单文件拖拽至此</h4>
+            <p data-i18n="dropzone_sub">完美兼容 Exportify CSV、#EXTM3U (.m3u / .m3u8 · Jellyfin / Navidrome / foobar2000) 与 JSON 备份（无数量上限）</p>
           </div>
         </div>
 
@@ -276,14 +323,14 @@
           <textarea id="plainTextTracksInput" placeholder="每行一首歌，支持常见格式，例如：&#10;1. 晴天 - 周杰伦&#10;七里香 - 周杰伦 (04:59)&#10;《夜曲》 周杰伦&#10;Shape of You - Ed Sheeran"></textarea>
           <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
             <input type="text" id="plainTextNameInput" style="max-width: 260px;" placeholder="歌单名称（可选）" value="文本导入歌单" />
-            <button class="btn btn-primary" onclick="importFromPlainText()">📥 解析文本歌单</button>
+            <button class="btn btn-primary" onclick="importFromPlainText()" data-i18n="btn_parse_text">📥 解析文本歌单</button>
           </div>
         </div>
 
         <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
           <label style="display: inline-flex; align-items: center; gap: 7px; margin: 0; cursor: pointer; font-weight: 500; color: var(--text-muted);">
             <input type="checkbox" id="appendTracksModeCheckbox" style="width: 15px; height: 15px; accent-color: var(--accent);" />
-            <span>追加合并模式（勾选后新加载的歌单将合并追加到当前列表，可混合多平台歌单）</span>
+            <span data-i18n="lbl_append_mode">追加合并模式（勾选后新加载的歌单将合并追加到当前列表，可混合多平台歌单）</span>
           </label>
         </div>
 
@@ -294,18 +341,24 @@
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
               <span style="font-size: 14px; font-weight: 700;">
-                待迁移列表（共 <span id="previewCount">0</span> 首）
+                <span data-i18n="lbl_pending_tracks_prefix">待迁移列表（共 </span><span id="previewCount">0</span><span data-i18n="lbl_pending_tracks_suffix"> 首）</span>
               </span>
-              <input type="text" id="sourceFilterInput" placeholder="🔎 搜索过滤歌名/歌手..." style="width: 210px; padding: 5px 10px; font-size: 12.5px;" oninput="renderLoadedTracksTable()" />
+              <input type="text" id="sourceFilterInput" data-i18n-placeholder="source_filter_placeholder" placeholder="🔎 搜索过滤歌名/歌手..." style="width: 210px; padding: 5px 10px; font-size: 12.5px;" oninput="renderLoadedTracksTable()" />
             </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px; border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7;" onclick="scanLoadedTracksDuplicates()">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px; border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7;" onclick="scanLoadedTracksDuplicates()" data-i18n="btn_src_dedupe">
                 🧹 源列表查重
               </button>
-              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="exportCurrentLoadedCsv()">
-                📤 导出 CSV
+              <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;" onclick="exportCurrentLoadedCsv()" data-i18n="btn_export_csv_short">
+                📤 CSV
               </button>
-              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="clearLoadedTracks()">
+              <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;" onclick="exportCurrentLoadedM3u8()" data-i18n="btn_export_m3u8_short">
+                🎵 M3U8
+              </button>
+              <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;" onclick="exportCurrentLoadedJson()" data-i18n="btn_export_json_short">
+                📦 JSON
+              </button>
+              <button class="btn btn-secondary" style="padding: 5px 11px; font-size: 12px;" onclick="clearLoadedTracks()" data-i18n="btn_clear_list">
                 清空列表
               </button>
             </div>
@@ -336,11 +389,11 @@
               <thead>
                 <tr>
                   <th style="width: 48px;">#</th>
-                  <th>歌曲标题</th>
-                  <th>歌手</th>
-                  <th>专辑</th>
-                  <th style="width: 72px;">时长</th>
-                  <th style="width: 96px;">操作</th>
+                  <th data-i18n="th_title">歌曲标题</th>
+                  <th data-i18n="th_artist">歌手</th>
+                  <th data-i18n="th_album">专辑</th>
+                  <th style="width: 72px;" data-i18n="th_duration">时长</th>
+                  <th style="width: 96px;" data-i18n="th_actions">操作</th>
                 </tr>
               </thead>
               <tbody id="trackPreviewTbody"></tbody>
@@ -354,97 +407,104 @@
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">2</span>
-            <span>选择目标平台、预匹配微调与批量导入</span>
+            <span data-i18n="step2_title">选择目标平台、预匹配微调与批量导入</span>
           </div>
         </div>
 
-        <label>选择要导入的目标音乐平台</label>
+        <label data-i18n="lbl_target_plat">选择要导入的目标音乐平台</label>
         <div class="target-plat-grid">
           <div class="target-plat-option selected" data-plat="ytm" onclick="selectTargetPlatform('ytm')">
             <div class="plat-logo logo-ytm" style="width: 28px; height: 28px; font-size: 12px;">▶</div>
             <div>
               <div style="font-size: 13px; font-weight: 700;">YouTube Music</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 红心</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_ytm">新建 / 追加 / 红心</div>
             </div>
           </div>
           <div class="target-plat-option" data-plat="netease" onclick="selectTargetPlatform('netease')">
             <div class="plat-logo logo-netease" style="width: 28px; height: 28px; font-size: 12px;">云</div>
             <div>
-              <div style="font-size: 13px; font-weight: 700;">网易云音乐</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 我喜欢</div>
+              <div id="tgtTitle_netease" style="font-size: 13px; font-weight: 700;">网易云音乐</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_netease">新建 / 追加 / 我喜欢</div>
             </div>
           </div>
           <div class="target-plat-option" data-plat="qqmusic" onclick="selectTargetPlatform('qqmusic')">
             <div class="plat-logo logo-qqmusic" style="width: 28px; height: 28px; font-size: 12px;">Q</div>
             <div>
-              <div style="font-size: 13px; font-weight: 700;">QQ音乐</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 我喜欢</div>
+              <div id="tgtTitle_qqmusic" style="font-size: 13px; font-weight: 700;">QQ音乐</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_qqmusic">新建 / 追加 / 我喜欢</div>
             </div>
           </div>
           <div class="target-plat-option" data-plat="spotify" onclick="selectTargetPlatform('spotify')">
             <div class="plat-logo logo-spotify" style="width: 28px; height: 28px; font-size: 12px;">S</div>
             <div>
               <div style="font-size: 13px; font-weight: 700;">Spotify</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / Liked</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_spotify">新建 / 追加 / Liked</div>
             </div>
           </div>
           <div class="target-plat-option" data-plat="kugou" onclick="selectTargetPlatform('kugou')">
             <div class="plat-logo logo-kugou" style="width: 28px; height: 28px; font-size: 12px;">K</div>
             <div>
-              <div style="font-size: 13px; font-weight: 700;">酷狗音乐</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 我喜欢</div>
+              <div id="tgtTitle_kugou" style="font-size: 13px; font-weight: 700;">酷狗音乐</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_kugou">新建 / 追加 / 我喜欢</div>
             </div>
           </div>
           <div class="target-plat-option" data-plat="applemusic" onclick="selectTargetPlatform('applemusic')">
             <div class="plat-logo logo-applemusic" style="width: 28px; height: 28px; font-size: 12px;">♪</div>
             <div>
               <div style="font-size: 13px; font-weight: 700;">Apple Music</div>
-              <div style="font-size: 11px; color: var(--text-muted);">新建 / 追加 / 资料库</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_applemusic">新建 / 追加 / 资料库</div>
+            </div>
+          </div>
+          <div class="target-plat-option" data-plat="subsonic" onclick="selectTargetPlatform('subsonic')">
+            <div class="plat-logo logo-subsonic" style="width: 28px; height: 28px; font-size: 12px;">N</div>
+            <div>
+              <div style="font-size: 13px; font-weight: 700;">Navidrome</div>
+              <div style="font-size: 11px; color: var(--text-muted);" data-i18n="tgt_sub_subsonic">新建 / 追加 / Starred</div>
             </div>
           </div>
         </div>
 
         <div class="row">
           <div>
-            <label>写入模式</label>
+            <label data-i18n="lbl_write_mode">写入模式</label>
             <select id="targetModeSelect" onchange="onTargetModeChange()">
-              <option value="new_playlist">✨ 在目标平台新建歌单（推荐）</option>
-              <option value="existing_playlist">➕ 追加到现有的自建歌单</option>
-              <option value="liked_songs">❤️ 直接加入目标平台「我喜欢的音乐」</option>
+              <option value="new_playlist" data-i18n="opt_mode_new">✨ 在目标平台新建歌单（推荐）</option>
+              <option value="existing_playlist" data-i18n="opt_mode_existing">➕ 追加到现有的自建歌单</option>
+              <option value="liked_songs" data-i18n="opt_mode_liked">❤️ 直接加入目标平台「我喜欢的音乐 / Starred」</option>
             </select>
           </div>
           <div id="newPlaylistPrivacyCol">
-            <label>新建歌单隐私属性</label>
+            <label data-i18n="lbl_privacy">新建歌单隐私属性</label>
             <select id="privacySelect">
-              <option value="PRIVATE">🔒 私密歌单 (Private)</option>
-              <option value="PUBLIC">🌍 公开歌单 (Public)</option>
-              <option value="UNLISTED">🔗 不公开链接可见 (仅 YouTube Music 支持)</option>
+              <option value="PRIVATE" data-i18n="opt_priv_private">🔒 私密歌单 (Private)</option>
+              <option value="PUBLIC" data-i18n="opt_priv_public">🌍 公开歌单 (Public)</option>
+              <option value="UNLISTED" data-i18n="opt_priv_unlisted">🔗 不公开链接可见 (仅 YouTube Music 支持)</option>
             </select>
           </div>
         </div>
 
         <div id="newPlaylistMetaRow" class="row">
           <div>
-            <label>新建歌单名称</label>
+            <label data-i18n="lbl_new_title">新建歌单名称</label>
             <input type="text" id="playlistTitleInput" value="My Imported Playlist" />
           </div>
           <div>
-            <label>歌单简介 (可选)</label>
+            <label data-i18n="lbl_new_desc">歌单简介 (可选)</label>
             <input type="text" id="playlistDescInput" value="Imported via Switch Music" />
           </div>
         </div>
 
         <div id="existingPlaylistRow" style="display: none; margin-bottom: 14px;">
-          <label>选择目标平台的现有歌单</label>
+          <label data-i18n="lbl_existing_pl">选择目标平台的现有歌单</label>
           <div style="display: flex; gap: 10px;">
             <select id="existingTargetPlaylistSelect"></select>
-            <button class="btn btn-secondary" onclick="loadTargetPlaylists(true)">🔄 刷新列表</button>
+            <button class="btn btn-secondary" onclick="loadTargetPlaylists(true)" data-i18n="btn_refresh">🔄 刷新</button>
           </div>
         </div>
 
         <div class="row">
           <div>
-            <label>搜索并发线程数（大型歌单加速）</label>
+            <label data-i18n="lbl_concurrency">搜索并发线程数（大型歌单加速）</label>
             <select id="concurrencySelect">
               <option value="4" selected>⚡ 4 线程并发（推荐，约提速 3.5x 且保持原歌单顺序）</option>
               <option value="6">🚀 6 线程极速（适合 500+ 首大型歌单）</option>
@@ -453,7 +513,7 @@
             </select>
           </div>
           <div>
-            <label>匹配最低置信度阈值（拦截错配/伴奏/翻唱）</label>
+            <label data-i18n="lbl_min_score">匹配最低置信度阈值（拦截错配/伴奏/翻唱）</label>
             <select id="minScoreSelect">
               <option value="38" selected>✨ 标准阈值 (38 分 · 自动过滤无关曲目与伴奏)</option>
               <option value="52">🎯 高精准模式 (52 分 · 宁缺毋滥)</option>
@@ -465,25 +525,25 @@
         <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px;">
           <label style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 500;">
             <input type="checkbox" id="skipDuplicatesCheckbox" checked style="width: 16px; height: 16px; accent-color: var(--spotify);" />
-            <span>自动跳过目标歌单中已存在的重复歌曲</span>
+            <span data-i18n="lbl_skip_dup">自动跳过目标歌单中已存在的重复歌曲</span>
           </label>
           <label style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 500;">
             <input type="checkbox" id="useCacheCheckbox" checked style="width: 16px; height: 16px; accent-color: var(--accent);" />
-            <span>启用本地持久化匹配缓存（二次迁移/重试秒级命中）</span>
+            <span data-i18n="lbl_use_cache">启用本地持久化匹配缓存（二次迁移/重试秒级命中）</span>
           </label>
         </div>
 
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button id="previewMatchBtn" class="btn btn-secondary" style="padding: 10px 20px; font-size: 14px; border-color: rgba(59, 130, 246, 0.55); color: #93c5fd;" onclick="startPreviewMatch()">
+          <button id="previewMatchBtn" class="btn btn-secondary" style="padding: 10px 20px; font-size: 14px; border-color: rgba(59, 130, 246, 0.55); color: #93c5fd;" onclick="startPreviewMatch()" data-i18n="btn_preview_match">
             🔍 先预匹配并人工微调（不写入）
           </button>
           <button id="startMigrateBtn" class="btn btn-ytm" style="padding: 10px 22px; font-size: 14px;" onclick="startDirectMigration()">
-            🚀 直接一键匹配并导入
+            🚀 直接一键匹配并导入到 YouTube Music
           </button>
           <button id="commitPreviewBtn" class="btn btn-spotify" style="padding: 10px 22px; font-size: 14px; display: none;" onclick="commitPreviewedMigration()">
             ✅ 确认无误，立即将勾选曲目写入目标平台
           </button>
-          <button id="cancelMigrateBtn" class="btn btn-danger" style="display: none;" onclick="cancelActiveJob()">
+          <button id="cancelMigrateBtn" class="btn btn-danger" style="display: none;" onclick="cancelActiveJob()" data-i18n="btn_stop_job">
             ⏹ 停止当前任务
           </button>
         </div>
@@ -508,23 +568,23 @@
           <div class="stats-grid">
             <div class="stat-box">
               <div id="statTotal" class="num">0</div>
-              <div class="lbl">总计曲目</div>
+              <div class="lbl" data-i18n="stat_total">总计曲目</div>
             </div>
             <div class="stat-box">
               <div id="statDone" class="num">0</div>
-              <div class="lbl">已处理</div>
+              <div class="lbl" data-i18n="stat_done">已处理</div>
             </div>
             <div class="stat-box">
               <div id="statMatched" class="num" style="color: var(--success);">0</div>
-              <div class="lbl">成功匹配</div>
+              <div class="lbl" data-i18n="stat_matched">成功匹配</div>
             </div>
             <div class="stat-box">
               <div id="statLowConf" class="num" style="color: var(--warning);">0</div>
-              <div class="lbl">低置信度留意</div>
+              <div class="lbl" data-i18n="stat_low_conf">低置信度留意</div>
             </div>
             <div class="stat-box">
               <div id="statUnmatched" class="num" style="color: var(--danger);">0</div>
-              <div class="lbl">未找到匹配</div>
+              <div class="lbl" data-i18n="stat_unmatched">未找到匹配</div>
             </div>
           </div>
 
@@ -547,13 +607,13 @@
           <!-- Filter Pills for Results Table -->
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px;">
             <div class="filter-pills">
-              <button class="filter-pill active" data-filter="all" onclick="setResultFilter('all')">全部结果</button>
-              <button class="filter-pill" data-filter="high" onclick="setResultFilter('high')">✅ 高置信度</button>
-              <button class="filter-pill" data-filter="low" onclick="setResultFilter('low')">⚠️ 低置信度待核对</button>
-              <button class="filter-pill" data-filter="unmatched" onclick="setResultFilter('unmatched')">❌ 未匹配</button>
+              <button class="filter-pill active" data-filter="all" onclick="setResultFilter('all')" data-i18n="filter_all">全部结果</button>
+              <button class="filter-pill" data-filter="high" onclick="setResultFilter('high')" data-i18n="filter_high">✅ 高置信度</button>
+              <button class="filter-pill" data-filter="low" onclick="setResultFilter('low')" data-i18n="filter_low">⚠️ 低置信度待核对</button>
+              <button class="filter-pill" data-filter="unmatched" onclick="setResultFilter('unmatched')" data-i18n="filter_unmatched">❌ 未匹配</button>
             </div>
-            <span style="font-size: 12px; color: var(--text-muted);">
-              💡 对任意不满意或未匹配的歌曲，点击右侧「🔍 搜歌替换/补录」即可手动搜索指定！
+            <span style="font-size: 12px; color: var(--text-muted);" data-i18n="manual_tip">
+              💡 对任意不满意或未匹配的歌曲，点击右侧「🔍 替换 / 搜歌补录」即可手动指定并自动记入缓存！
             </span>
           </div>
 
@@ -562,10 +622,10 @@
               <thead>
                 <tr>
                   <th style="width: 52px;">#</th>
-                  <th>源曲目</th>
-                  <th style="width: 120px;">置信度 / 状态</th>
-                  <th>目标平台匹配结果</th>
-                  <th style="width: 118px;">人工微调</th>
+                  <th data-i18n="th_src_track">源曲目</th>
+                  <th style="width: 120px;" data-i18n="th_conf_status">置信度 / 状态</th>
+                  <th data-i18n="th_matched_track">目标平台匹配结果</th>
+                  <th style="width: 118px;" data-i18n="th_manual_fix">人工微调</th>
                 </tr>
               </thead>
               <tbody id="jobResultsTbody"></tbody>
@@ -583,33 +643,34 @@
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">🧹</span>
-            <span>全平台歌单去重清理工具（支持 YouTube Music / 网易云音乐 / QQ音乐 / 酷狗音乐 / Spotify，Apple Music 仅扫描）</span>
+            <span data-i18n="dedupe_header">全平台歌单去重清理工具（支持 YTM / 网易云 / QQ音乐 / 酷狗 / Spotify / Navidrome，Apple Music 仅扫描）</span>
           </div>
         </div>
 
         <div class="row-3">
           <div>
-            <label>选择平台</label>
+            <label data-i18n="lbl_dedupe_plat">选择平台</label>
             <select id="dedupePlatformSelect" onchange="loadDedupePlaylists()">
               <option value="ytm">YouTube Music</option>
               <option value="netease">网易云音乐</option>
               <option value="qqmusic">QQ音乐</option>
               <option value="kugou">酷狗音乐</option>
               <option value="spotify">Spotify</option>
+              <option value="subsonic">Navidrome / Subsonic</option>
               <option value="applemusic">Apple Music（仅扫描，需在 App 内删除）</option>
             </select>
           </div>
           <div>
-            <label>选择要扫描的自建歌单</label>
+            <label data-i18n="lbl_dedupe_pl">选择要扫描的自建歌单</label>
             <div style="display: flex; gap: 8px;">
               <select id="dedupePlaylistSelect">
                 <option value="">-- 请先连接对应平台或点击刷新 --</option>
               </select>
-              <button class="btn btn-secondary" onclick="loadDedupePlaylists(true)">🔄 刷新</button>
+              <button class="btn btn-secondary" onclick="loadDedupePlaylists(true)" data-i18n="btn_refresh">🔄 刷新</button>
             </div>
           </div>
           <div>
-            <label>去重识别模式</label>
+            <label data-i18n="lbl_dedupe_mode">去重识别模式</label>
             <select id="dedupeModeSelect">
               <option value="standard">✨ 标准模式（同 ID + 同名同歌手/简繁体）</option>
               <option value="strict">🔒 严格模式（仅限完全相同的歌曲 ID）</option>
@@ -619,7 +680,7 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button id="scanDupBtn" class="btn btn-primary" onclick="scanPlatformDuplicates()">
+          <button id="scanDupBtn" class="btn btn-primary" onclick="scanPlatformDuplicates()" data-i18n="btn_scan_dup">
             🔍 扫描重复曲目
           </button>
           <span style="font-size: 12.5px; color: var(--text-muted);">
@@ -665,41 +726,51 @@
     </div>
 
     <!-- ================================================================== -->
-    <!-- VIEW 3: PLAYLIST CSV BACKUP & EXPORT                               -->
+    <!-- VIEW 3: MULTI-FORMAT PLAYLIST BACKUP & EXPORT                      -->
     <!-- ================================================================== -->
     <div id="view_export" style="display: none;">
       <section class="card">
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">📤</span>
-            <span>歌单导出备份为 CSV（支持 Excel 直接打开与跨工具再导入）</span>
+            <span data-i18n="export_header">歌单多格式导出备份（支持 CSV / M3U8 / JSON，兼容 Excel、Navidrome、Jellyfin 与跨工具恢复）</span>
           </div>
+        </div>
+
+        <div style="margin-bottom: 14px; max-width: 520px;">
+          <label data-i18n="lbl_export_format">选择导出文件格式</label>
+          <select id="exportFormatSelect">
+            <option value="csv" data-i18n="opt_fmt_csv">📊 CSV 表格 (.csv · Excel 直接打开 / 兼容 Exportify)</option>
+            <option value="m3u8" data-i18n="opt_fmt_m3u8">🎵 M3U8 播放列表 (.m3u8 · #EXTM3U 兼容 Jellyfin / Navidrome / 本地播放器)</option>
+            <option value="json" data-i18n="opt_fmt_json">📦 JSON 完整备份 (.json · 保留 ISRC、时长与平台 ID)</option>
+          </select>
         </div>
 
         <div class="row">
           <div>
-            <label>方式一：从已连接平台选择歌单导出（含 ❤️ 我喜欢的音乐）</label>
+            <label data-i18n="lbl_export_method1">方式一：从已连接平台选择歌单导出（含 ❤️ 我喜欢的音乐 / Starred）</label>
             <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-              <select id="exportPlatformSelect" style="width: 170px;" onchange="loadExportPlaylists()">
+              <select id="exportPlatformSelect" style="width: 175px;" onchange="loadExportPlaylists()">
                 <option value="ytm">YouTube Music</option>
                 <option value="spotify">Spotify</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
                 <option value="kugou">酷狗音乐</option>
                 <option value="applemusic">Apple Music</option>
+                <option value="subsonic">Navidrome / Subsonic</option>
               </select>
               <select id="exportPlaylistSelect" style="flex: 1;">
                 <option value="">-- 点击刷新加载歌单 --</option>
               </select>
               <button class="btn btn-secondary" onclick="loadExportPlaylists(true)">🔄</button>
             </div>
-            <button class="btn btn-primary" onclick="downloadSelectedPlaylistCsv()">📥 导出选中歌单为 CSV</button>
+            <button class="btn btn-primary" onclick="downloadSelectedPlaylistCsv()" data-i18n="btn_export_selected">📥 导出选中歌单备份</button>
           </div>
 
           <div>
-            <label>方式二：粘贴公开歌单链接直接导出 CSV（免登录支持网易云/QQ音乐/酷狗/Apple Music/YTM）</label>
-            <input type="text" id="exportUrlInput" placeholder="粘贴歌单分享链接..." style="margin-bottom: 10px;" />
-            <button id="exportUrlBtn" class="btn btn-secondary" onclick="exportUrlPlaylistCsv()">📥 解析链接并下载 CSV</button>
+            <label data-i18n="lbl_export_method2">方式二：粘贴公开歌单链接免登录直接导出（支持网易云/QQ/酷狗/汽水/Apple Music/YTM）</label>
+            <input type="text" id="exportUrlInput" placeholder="粘贴歌单分享链接（含汽水音乐短链）..." style="margin-bottom: 10px;" />
+            <button id="exportUrlBtn" class="btn btn-secondary" onclick="exportUrlPlaylistCsv()" data-i18n="btn_export_url">📥 解析链接并下载备份</button>
           </div>
         </div>
         <div id="exportAlert" class="alert"></div>
@@ -707,30 +778,31 @@
     </div>
 
     <!-- ================================================================== -->
-    <!-- VIEW 4: SCHEDULED INCREMENTAL SYNC & MIGRATION HISTORY             -->
+    <!-- VIEW 4: SCHEDULED SYNC, PUSH GUARDIAN & MIGRATION HISTORY          -->
     <!-- ================================================================== -->
     <div id="view_sync" style="display: none;">
-      <!-- Scheduled Incremental Sync Card -->
+      <!-- Scheduled Sync Card -->
       <section class="card">
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">⏱️</span>
-            <span>定时增量同步规则（自动检测源歌单新增曲目并同步至目标平台）</span>
+            <span data-i18n="sync_header">定时同步守护（支持单向增量追加、防误删镜像同步、双向无回声合并）</span>
           </div>
-          <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="loadSyncTasks()">🔄 刷新状态</button>
+          <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="loadSyncTasks()" data-i18n="btn_refresh">🔄 刷新</button>
         </div>
 
         <div class="row-3">
           <div>
-            <label>源平台 &amp; 歌单（例如：Spotify 我喜欢的音乐）</label>
+            <label data-i18n="lbl_sync_src">源平台 &amp; 歌单（双向模式下为 A 端）</label>
             <div style="display: flex; gap: 6px;">
-              <select id="syncSrcPlat" style="width: 130px;" onchange="loadSyncSourcePlaylists()">
+              <select id="syncSrcPlat" style="width: 135px;" onchange="loadSyncSourcePlaylists()">
                 <option value="spotify">Spotify</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
                 <option value="kugou">酷狗音乐</option>
                 <option value="applemusic">Apple Music</option>
                 <option value="ytm">YouTube Music</option>
+                <option value="subsonic">Navidrome</option>
               </select>
               <select id="syncSrcPlaylist" style="flex: 1;"></select>
               <button class="btn btn-secondary" style="padding: 6px 9px;" onclick="loadSyncSourcePlaylists()">🔄</button>
@@ -738,15 +810,16 @@
           </div>
 
           <div>
-            <label>目标平台 &amp; 写入位置</label>
+            <label data-i18n="lbl_sync_tgt">目标平台 &amp; 位置（双向模式下为 B 端）</label>
             <div style="display: flex; gap: 6px;">
-              <select id="syncTgtPlat" style="width: 130px;" onchange="loadSyncTargetPlaylists()">
+              <select id="syncTgtPlat" style="width: 135px;" onchange="loadSyncTargetPlaylists()">
                 <option value="ytm">YouTube Music</option>
                 <option value="netease">网易云音乐</option>
                 <option value="qqmusic">QQ音乐</option>
                 <option value="kugou">酷狗音乐</option>
                 <option value="applemusic">Apple Music</option>
                 <option value="spotify">Spotify</option>
+                <option value="subsonic">Navidrome</option>
               </select>
               <select id="syncTgtPlaylist" style="flex: 1;"></select>
               <button class="btn btn-secondary" style="padding: 6px 9px;" onclick="loadSyncTargetPlaylists()">🔄</button>
@@ -754,7 +827,7 @@
           </div>
 
           <div>
-            <label>同步周期 &amp; 规则名称</label>
+            <label data-i18n="lbl_sync_interval_name">同步周期 &amp; 规则名称</label>
             <div style="display: flex; gap: 6px;">
               <select id="syncIntervalSelect" style="width: 135px;">
                 <option value="30">每 30 分钟</option>
@@ -767,7 +840,26 @@
           </div>
         </div>
 
-        <button class="btn btn-primary" onclick="createSyncTask()">➕ 添加定时增量同步规则</button>
+        <div class="row">
+          <div>
+            <label data-i18n="lbl_sync_mode">同步策略模式</label>
+            <select id="syncModeSelect" onchange="onSyncModeChange()">
+              <option value="append" data-i18n="opt_sync_append">➕ 单向增量追加（仅同步源端新增曲目，最安全）</option>
+              <option value="mirror" data-i18n="opt_sync_mirror">🪞 单向镜像同步（源端移除时同步删除，内置防误删熔断）</option>
+              <option value="two_way" data-i18n="opt_sync_twoway">⇄ 双向合并同步（A ⇄ B 两端新增曲目互相同步且防回声）</option>
+            </select>
+          </div>
+          <div id="syncMirrorGuardCol" style="display: none;">
+            <label data-i18n="lbl_mirror_guard">镜像防误删熔断阈值（空快照保护 + 单次最大允许删除比例）</label>
+            <select id="syncMaxRemoveRatio">
+              <option value="0.2" data-i18n="opt_ratio_20">🛡️ 严格保护：单次最多允许删除 20%（超出自动熔断中止）</option>
+              <option value="0.3" selected data-i18n="opt_ratio_30">✨ 推荐阈值：单次最多允许删除 30%（超出自动熔断中止）</option>
+              <option value="0.5" data-i18n="opt_ratio_50">🌊 宽松阈值：单次最多允许删除 50%（超出自动熔断中止）</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="createSyncTask()" data-i18n="btn_add_sync">➕ 添加定时同步规则</button>
         <div id="syncAlert" class="alert"></div>
 
         <div class="table-wrap" style="margin-top: 16px;">
@@ -775,7 +867,7 @@
             <thead>
               <tr>
                 <th>规则名称</th>
-                <th>同步方向</th>
+                <th>模式 &amp; 同步方向</th>
                 <th>周期</th>
                 <th>最近运行结果</th>
                 <th style="width: 190px;">操作</th>
@@ -788,16 +880,69 @@
         </div>
       </section>
 
+      <!-- Push Notification Guardian Card -->
+      <section class="card">
+        <div class="card-header">
+          <div class="step-title">
+            <span class="step-num">🔔</span>
+            <span data-i18n="notif_header">消息推送守护（Webhook / Bark / Telegram · 登录态失效或同步完成自动通知）</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px;">
+          <label style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 600;">
+            <input type="checkbox" id="notifEnabledCheckbox" style="width: 16px; height: 16px; accent-color: var(--spotify);" />
+            <span data-i18n="lbl_notif_enable">启用消息推送通知</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 500; color: var(--text-muted);">
+            <input type="checkbox" id="notifOnErrorCheckbox" checked style="width: 15px; height: 15px; accent-color: var(--danger);" />
+            <span data-i18n="lbl_notif_on_err">同步异常 / Cookie 过期 / 镜像熔断时告警</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 500; color: var(--text-muted);">
+            <input type="checkbox" id="notifOnSuccessCheckbox" checked style="width: 15px; height: 15px; accent-color: var(--accent);" />
+            <span data-i18n="lbl_notif_on_ok">同步成功并有曲目变更时推送摘要</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <div>
+            <label data-i18n="lbl_notif_webhook">Webhook 地址（支持飞书 / 钉钉 / 企业微信 / Discord / Slack / 自定义 JSON）</label>
+            <input type="text" id="notifWebhookInput" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/... 或 Discord Webhook" />
+          </div>
+          <div>
+            <label data-i18n="lbl_notif_bark">Bark 推送地址或 Device Key（iOS 实时推送）</label>
+            <input type="text" id="notifBarkInput" placeholder="https://api.day.app/YourKey 或直接填写 Key" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label data-i18n="lbl_notif_tg_token">Telegram Bot Token（可选）</label>
+            <input type="password" id="notifTgTokenInput" placeholder="123456789:ABCdefGHIjklMNO..." />
+          </div>
+          <div>
+            <label data-i18n="lbl_notif_tg_chat">Telegram Chat ID（可选）</label>
+            <input type="text" id="notifTgChatInput" placeholder="例如 987654321 或 -100123456789" />
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="saveNotifBtn" class="btn btn-primary" onclick="saveNotificationConfig()" data-i18n="btn_save_notif">💾 保存推送配置</button>
+          <button id="testNotifBtn" class="btn btn-secondary" onclick="sendTestNotification()" data-i18n="btn_test_notif">📨 发送测试通知</button>
+        </div>
+        <div id="notifAlert" class="alert"></div>
+      </section>
+
       <!-- Migration History Card -->
       <section class="card">
         <div class="card-header">
           <div class="step-title">
             <span class="step-num">📜</span>
-            <span>本地历史迁移任务记录</span>
+            <span data-i18n="history_header">本地历史迁移任务记录</span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="loadHistoryList()">🔄 刷新</button>
-            <button class="btn btn-danger" style="padding: 5px 12px; font-size: 12px;" onclick="clearAllHistory()">清空历史</button>
+            <button class="btn btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="loadHistoryList()" data-i18n="btn_refresh">🔄 刷新</button>
+            <button class="btn btn-danger" style="padding: 5px 12px; font-size: 12px;" onclick="clearAllHistory()" data-i18n="btn_clear_history">清空历史</button>
           </div>
         </div>
 
@@ -869,6 +1014,53 @@
     </div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- MODAL 3: MATCH CACHE INSPECTOR & SINGLE-ENTRY EDITOR               -->
+  <!-- ================================================================== -->
+  <div id="cacheManagerModal" class="modal-backdrop" onclick="if(event.target===this)closeCacheModal()">
+    <div class="modal-card modal-card-wide">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <div style="font-size: 16px; font-weight: 700;" data-i18n="cache_modal_title">⚡ 本地持久化匹配缓存管理（查看 / 搜索 / 单条纠错删除）</div>
+        <button class="btn-mini" onclick="closeCacheModal()">关闭 ✕</button>
+      </div>
+      <div id="cacheStatsText" style="font-size: 12.5px; color: var(--text-muted); margin: 6px 0 10px;">正在读取缓存统计...</div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <select id="cachePlatformFilter" style="width: 175px;" onchange="loadCacheModalEntries()">
+          <option value="" data-i18n="cache_filter_all_plat">全部目标平台</option>
+          <option value="ytm">YouTube Music</option>
+          <option value="spotify">Spotify</option>
+          <option value="netease">网易云音乐</option>
+          <option value="qqmusic">QQ音乐</option>
+          <option value="kugou">酷狗音乐</option>
+          <option value="applemusic">Apple Music</option>
+          <option value="subsonic">Navidrome / Subsonic</option>
+        </select>
+        <input type="text" id="cacheSearchInput" style="flex: 1; min-width: 210px;" data-i18n-placeholder="cache_search_placeholder" placeholder="搜索源歌名、歌手、ISRC 或匹配结果..." oninput="debouncedLoadCacheEntries()" />
+        <button class="btn btn-secondary" style="padding: 8px 13px; font-size: 12.5px;" onclick="loadCacheModalEntries()" data-i18n="btn_refresh">🔄 刷新</button>
+        <button class="btn btn-danger" style="padding: 8px 13px; font-size: 12.5px;" onclick="clearMatchCacheFromModal()" data-i18n="btn_clear_all_cache">🗑️ 清空全部缓存</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="table-wrap" style="max-height: 440px; margin-top: 4px;">
+          <table>
+            <thead>
+              <tr>
+                <th>源曲目 (Source)</th>
+                <th style="width: 120px;">目标平台</th>
+                <th>缓存的目标匹配曲目 (Target Match)</th>
+                <th style="width: 135px;">缓存时间</th>
+                <th style="width: 82px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="cacheEntriesTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/i18n.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

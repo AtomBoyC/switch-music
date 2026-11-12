@@ -23,3 +23,12 @@ services:
       # SWITCH_MUSIC_ALLOWED_HOSTS: 192.168.1.10,music.example.com
       # Spotify only allows http redirect URIs on 127.0.0.1; on a remote server use your https URL:
       # SPOTIFY_REDIRECT_URI: https://music.example.com/api/spotify/callback
+      # Optional: Pre-configure your Navidrome / Subsonic server (can also be set in the Web UI):
+      # SUBSONIC_URL: http://navidrome:4533
+      # SUBSONIC_USER: admin
+      # SUBSONIC_PASSWORD: your-subsonic-password
+      # Optional: Headless sync push notifications (Webhook / Bark / Telegram — also configurable in Web UI):
+      # SWITCH_MUSIC_WEBHOOK_URL: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+      # SWITCH_MUSIC_BARK_URL: https://api.day.app/your-bark-key
+      # SWITCH_MUSIC_TG_BOT_TOKEN: 123456:ABC-DEF...
+      # SWITCH_MUSIC_TG_CHAT_ID: "123456789"

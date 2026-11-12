@@ -1,4 +1,4 @@
-/* Switch Music 2.0 Frontend Controller */
+/* Switch Music v2.3 Frontend Controller */
 
 const PLATFORM_LABELS = {
   ytm: 'YouTube Music',
@@ -7,11 +7,18 @@ const PLATFORM_LABELS = {
   qqmusic: 'QQ音乐',
   kugou: '酷狗音乐',
   applemusic: 'Apple Music',
+  subsonic: 'Navidrome / Subsonic',
+  qishui: '汽水音乐',
 };
 
+function getPlatDisplay(pid) {
+  if (typeof platLabel === 'function') return platLabel(pid);
+  return PLATFORM_LABELS[pid] || pid;
+}
+
 // Platforms whose public playlists can be read without logging in.
-const LINK_READ_PLATFORMS = ['netease', 'qqmusic', 'kugou', 'applemusic'];
-const ALL_PLATFORMS = ['ytm', 'spotify', 'netease', 'qqmusic', 'kugou', 'applemusic'];
+const LINK_READ_PLATFORMS = ['netease', 'qqmusic', 'kugou', 'applemusic', 'qishui'];
+const ALL_PLATFORMS = ['ytm', 'spotify', 'netease', 'qqmusic', 'kugou', 'applemusic', 'subsonic'];
 
 const COOKIE_GUIDES = {
   ytm: {
@@ -100,7 +107,12 @@ let scannedDupTotal = 0;
 let scannedDupPlaylistId = '';
 let scannedDupPlatform = 'ytm';
 
+// Cache Inspector modal state
+let loadedCacheEntries = [];
+let cacheSearchTimer = null;
+
 window.addEventListener('DOMContentLoaded', async () => {
+  applyLanguageUI();
   setupDragAndDrop();
   await refreshAllPlatformsStatus(false);
 
@@ -112,6 +124,34 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadSourceAccountPlaylists(false);
   }
 });
+
+function applyLanguageUI() {
+  if (typeof applyStaticI18n === 'function') {
+    applyStaticI18n();
+  }
+  ['netease', 'qqmusic', 'kugou'].forEach(pid => {
+    const label = getPlatDisplay(pid);
+    const pTitle = document.getElementById(`platTitle_${pid}`);
+    if (pTitle) pTitle.textContent = label;
+    const tTitle = document.getElementById(`tgtTitle_${pid}`);
+    if (tTitle) tTitle.textContent = label;
+  });
+  updateLoadedTracksUI();
+  const startBtn = document.getElementById('startMigrateBtn');
+  if (startBtn && typeof t === 'function') {
+    startBtn.textContent = t('btn_direct_migrate', { plat: getPlatDisplay(selectedTargetPlatform) });
+  }
+}
+
+function toggleLanguage() {
+  currentUiLang = getUiLang() === 'zh' ? 'en' : 'zh';
+  try {
+    localStorage.setItem('switch_music_lang', currentUiLang);
+  } catch (_) {}
+  applyLanguageUI();
+  refreshAllPlatformsStatus(false);
+  if (currentJobData) renderJobProgress(currentJobData);
+}
 
 // ---------------------------------------------------------------------------
 // UI Utilities
@@ -165,6 +205,7 @@ function switchMainView(viewName) {
     loadSyncSourcePlaylists();
     loadSyncTargetPlaylists();
     loadSyncTasks();
+    loadNotificationConfig();
     loadHistoryList();
   }
 }
@@ -186,12 +227,14 @@ async function refreshAllPlatformsStatus(showFeedback = false) {
       if (!card || !sub) return;
       if (st.connected) {
         card.classList.add('connected');
-        sub.textContent = st.user_name ? `已连接: ${st.user_name}` : '已连接 (点击管理)';
+        sub.textContent = st.user_name
+          ? t('plat_connected_user', { name: st.user_name })
+          : t('plat_connected_generic');
       } else {
         card.classList.remove('connected');
         sub.textContent = LINK_READ_PLATFORMS.includes(pid)
-          ? '未登录 · 支持链接直读'
-          : '未连接 · 点击配置';
+          ? t('plat_unconnected_link')
+          : t('plat_unconnected_cfg');
       }
     });
 
@@ -200,6 +243,17 @@ async function refreshAllPlatformsStatus(showFeedback = false) {
     }
     if (platformStatuses.spotify && platformStatuses.spotify.redirect_uri) {
       document.getElementById('spRedirectUri').textContent = platformStatuses.spotify.redirect_uri;
+    }
+    if (platformStatuses.subsonic) {
+      const subSt = platformStatuses.subsonic;
+      if (subSt.server_url) document.getElementById('subsonicUrlInput').value = subSt.server_url;
+      if (subSt.username) document.getElementById('subsonicUserInput').value = subSt.username;
+      const passInput = document.getElementById('subsonicPassInput');
+      if (passInput) {
+        passInput.placeholder = subSt.has_password
+          ? '已保存密码（留空则沿用原密码）'
+          : '输入登录密码';
+      }
     }
     if (activeAuthDrawer) {
       updateDrawerButtons(activeAuthDrawer);
@@ -224,11 +278,15 @@ function toggleAuthDrawer(plat) {
 
   const drawer = document.getElementById('authDrawerCard');
   drawer.style.display = 'block';
-  document.getElementById('authDrawerTitle').textContent = `连接管理 · ${PLATFORM_LABELS[plat]}`;
+  document.getElementById('authDrawerTitle').textContent = `${t('drawer_title_prefix')}${getPlatDisplay(plat)}`;
   document.getElementById('cookieAuthMsg').textContent = '';
+  document.getElementById('subsonicAuthMsg').textContent = '';
+
+  document.getElementById('cookieAuthForm').style.display = 'none';
+  document.getElementById('spotifyAuthForm').style.display = 'none';
+  document.getElementById('subsonicAuthForm').style.display = 'none';
 
   if (plat === 'spotify') {
-    document.getElementById('cookieAuthForm').style.display = 'none';
     document.getElementById('spotifyAuthForm').style.display = 'block';
     const st = platformStatuses.spotify || {};
     const hint = document.getElementById('spScopeHint');
@@ -241,8 +299,15 @@ function toggleAuthDrawer(plat) {
     } else {
       hint.textContent = '';
     }
+  } else if (plat === 'subsonic') {
+    document.getElementById('subsonicAuthForm').style.display = 'block';
+    const st = platformStatuses.subsonic || {};
+    if (st.connected) {
+      const msg = document.getElementById('subsonicAuthMsg');
+      msg.style.color = 'var(--success)';
+      msg.textContent = `✅ 已连接: ${st.user_name} (${st.server_url || ''})`;
+    }
   } else {
-    document.getElementById('spotifyAuthForm').style.display = 'none';
     document.getElementById('cookieAuthForm').style.display = 'block';
     document.getElementById('kugouQrBox').style.display = plat === 'kugou' ? 'flex' : 'none';
     const g = COOKIE_GUIDES[plat];
@@ -252,7 +317,7 @@ function toggleAuthDrawer(plat) {
     document.getElementById('cookieGuideSummary').parentElement.open = plat !== 'kugou';
     const btn = document.getElementById('saveCookieAuthBtn');
     btn.className = `btn ${g.btnClass}`;
-    btn.textContent = `验证并保存 ${PLATFORM_LABELS[plat]} 连接`;
+    btn.textContent = `${t('btn_save_cookie')} (${getPlatDisplay(plat)})`;
   }
   if (plat !== 'kugou') stopKugouQrPolling();
   updateDrawerButtons(plat);
@@ -411,6 +476,45 @@ async function saveSpotifyConfigAndLogin() {
   }
 }
 
+async function saveSubsonicConfig() {
+  const serverUrl = document.getElementById('subsonicUrlInput').value.trim();
+  const username = document.getElementById('subsonicUserInput').value.trim();
+  const password = document.getElementById('subsonicPassInput').value;
+  const msg = document.getElementById('subsonicAuthMsg');
+  const btn = document.getElementById('saveSubsonicBtn');
+
+  if (!serverUrl || !username) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = '请填写服务器地址与登录用户名';
+    return;
+  }
+
+  btn.disabled = true;
+  msg.style.color = 'var(--text-muted)';
+  msg.textContent = '⏳ 正在连接并验证 Subsonic ping 接口...';
+  try {
+    const res = await fetch('/api/platforms/subsonic/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server_url: serverUrl, username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '连接失败');
+    msg.style.color = 'var(--success)';
+    msg.textContent = `✅ ${data.message}`;
+    document.getElementById('subsonicPassInput').value = '';
+    await refreshAllPlatformsStatus(false);
+    if (selectedTargetPlatform === 'subsonic') {
+      loadTargetPlaylists(false);
+    }
+  } catch (err) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = `❌ ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function clearMatchCache() {
   try {
     const res = await fetch('/api/cache/matches', { method: 'DELETE' });
@@ -419,6 +523,103 @@ async function clearMatchCache() {
   } catch (err) {
     console.error(err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 1b. Match Cache Inspector & Single-Entry Editor Modal
+// ---------------------------------------------------------------------------
+
+function openCacheModal() {
+  document.getElementById('cacheManagerModal').classList.add('open');
+  loadCacheModalEntries();
+}
+
+function closeCacheModal() {
+  document.getElementById('cacheManagerModal').classList.remove('open');
+}
+
+function debouncedLoadCacheEntries() {
+  if (cacheSearchTimer) clearTimeout(cacheSearchTimer);
+  cacheSearchTimer = setTimeout(() => loadCacheModalEntries(), 220);
+}
+
+async function loadCacheModalEntries() {
+  const plat = document.getElementById('cachePlatformFilter').value;
+  const q = document.getElementById('cacheSearchInput').value.trim();
+  const tbody = document.getElementById('cacheEntriesTbody');
+  const statsEl = document.getElementById('cacheStatsText');
+  try {
+    const qs = new URLSearchParams({ platform: plat, q, limit: '250' });
+    const res = await fetch(`/api/cache/matches?${qs.toString()}`);
+    const data = await res.json();
+    loadedCacheEntries = data.entries || [];
+
+    const byPlat = data.by_platform || {};
+    const breakdown = Object.keys(byPlat)
+      .map(p => `${getPlatDisplay(p)}: ${byPlat[p]}`)
+      .join(' · ');
+    statsEl.textContent = `本地缓存总计 ${data.total_cached || 0} 条（当前筛选命中 ${data.filtered_count || 0} 条）${breakdown ? '  |  ' + breakdown : ''}`;
+
+    tbody.innerHTML = '';
+    if (!loadedCacheEntries.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:18px;">${escapeHtml(t('cache_empty'))}</td></tr>`;
+      return;
+    }
+
+    loadedCacheEntries.forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      const isrcBadge = row.source_isrc
+        ? `<span class="pill pill-info" style="font-size:10.5px;margin-left:5px;">ISRC: ${escapeHtml(row.source_isrc)}</span>`
+        : '';
+      const confBadge = row.confidence === 'manual'
+        ? '<span class="pill pill-info" style="font-size:10.5px;">🎯 人工指定</span>'
+        : row.score !== null && row.score !== undefined
+          ? `<span class="pill pill-ok" style="font-size:10.5px;">${row.score} 分</span>`
+          : '';
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:600;">${escapeHtml(row.source_title || '-')}${isrcBadge}</div>
+          <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(row.source_artist || '-')}</div>
+        </td>
+        <td><span class="pill pill-muted">${escapeHtml(getPlatDisplay(row.target_platform))}</span></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            ${row.matched_url
+              ? `<a href="${escapeHtml(row.matched_url)}" target="_blank" style="color:#93c5fd;text-decoration:none;font-weight:600;">${escapeHtml(row.matched_title || row.matched_id)} ↗</a>`
+              : `<span style="font-weight:600;">${escapeHtml(row.matched_title || row.matched_id)}</span>`
+            }
+            ${confBadge}
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);">
+            ${escapeHtml(row.matched_artist || '')}${row.matched_duration ? ' · ' + escapeHtml(row.matched_duration) : ''}
+          </div>
+        </td>
+        <td style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(row.updated_at || '-')}</td>
+        <td>
+          <button class="btn-mini" title="删除此条缓存（下次迁移将重新搜索）" onclick="deleteSingleCacheEntry(${idx})">🗑️ 删除</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    statsEl.textContent = '❌ 读取缓存失败: ' + err.message;
+  }
+}
+
+async function deleteSingleCacheEntry(idx) {
+  const row = loadedCacheEntries[idx];
+  if (!row || !row.key) return;
+  try {
+    await fetch(`/api/cache/matches/item?key=${encodeURIComponent(row.key)}`, { method: 'DELETE' });
+    await loadCacheModalEntries();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function clearMatchCacheFromModal() {
+  await clearMatchCache();
+  await loadCacheModalEntries();
 }
 
 // ---------------------------------------------------------------------------
@@ -595,8 +796,12 @@ function applyIncomingTracks(newTracks, suggestedName, sourcePlat) {
 }
 
 function updateLoadedTracksUI() {
-  document.getElementById('loadedCounter').textContent =
-    loadedTracks.length > 0 ? `已就绪 ${loadedTracks.length} 首歌曲` : '尚未加载曲目';
+  const counterEl = document.getElementById('loadedCounter');
+  if (counterEl) {
+    counterEl.textContent = loadedTracks.length > 0
+      ? t('loaded_ready', { count: loadedTracks.length })
+      : t('loaded_none');
+  }
   document.getElementById('previewCount').textContent = loadedTracks.length;
   document.getElementById('trackPreviewSection').style.display = loadedTracks.length > 0 ? 'block' : 'none';
   renderLoadedTracksTable();
@@ -685,7 +890,19 @@ function clearLoadedTracks() {
 async function exportCurrentLoadedCsv() {
   if (!loadedTracks.length) return;
   const name = document.getElementById('playlistTitleInput').value.trim() || 'Switch_Music_Tracks';
-  await triggerCsvDownload(name, loadedTracks);
+  await triggerFormatDownload('csv', name, loadedTracks);
+}
+
+async function exportCurrentLoadedM3u8() {
+  if (!loadedTracks.length) return;
+  const name = document.getElementById('playlistTitleInput').value.trim() || 'Switch_Music_Tracks';
+  await triggerFormatDownload('m3u8', name, loadedTracks);
+}
+
+async function exportCurrentLoadedJson() {
+  if (!loadedTracks.length) return;
+  const name = document.getElementById('playlistTitleInput').value.trim() || 'Switch_Music_Tracks';
+  await triggerFormatDownload('json', name, loadedTracks);
 }
 
 // --- Source List Deduplication ---
@@ -818,7 +1035,7 @@ function selectTargetPlatform(plat) {
   });
   const btn = document.getElementById('startMigrateBtn');
   btn.className = `btn btn-${plat}`;
-  btn.textContent = `🚀 直接一键匹配并导入到 ${PLATFORM_LABELS[plat]}`;
+  btn.textContent = t('btn_direct_migrate', { plat: getPlatDisplay(plat) });
   document.getElementById('commitPreviewBtn').style.display = 'none';
 
   if (document.getElementById('targetModeSelect').value === 'existing_playlist') {
@@ -1545,11 +1762,12 @@ async function removeSelectedPlatformDuplicates() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Playlist CSV Backup & Export (View 3)
+// 6. Multi-Format Playlist Backup & Export (View 3: CSV / M3U8 / JSON)
 // ---------------------------------------------------------------------------
 
-async function triggerCsvDownload(playlistName, tracks) {
-  const res = await fetch('/api/export/csv', {
+async function triggerFormatDownload(fmt, playlistName, tracks) {
+  const cleanFmt = ['csv', 'm3u8', 'json'].includes(fmt) ? fmt : 'csv';
+  const res = await fetch(`/api/export/${cleanFmt}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ playlist_name: playlistName, tracks }),
@@ -1563,11 +1781,15 @@ async function triggerCsvDownload(playlistName, tracks) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${playlistName}.csv`;
+  a.download = `${playlistName}.${cleanFmt}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+async function triggerCsvDownload(playlistName, tracks) {
+  await triggerFormatDownload('csv', playlistName, tracks);
 }
 
 async function loadExportPlaylists(showErr = false) {
@@ -1586,7 +1808,7 @@ async function loadExportPlaylists(showErr = false) {
       sel.appendChild(opt);
     });
   } catch (err) {
-    sel.innerHTML = `<option value="">-- 请先连接 ${PLATFORM_LABELS[plat]} --</option>`;
+    sel.innerHTML = `<option value="">-- 请先连接 ${getPlatDisplay(plat)} --</option>`;
     if (showErr) showAlert('exportAlert', 'error', '❌ ' + err.message);
   }
 }
@@ -1594,22 +1816,24 @@ async function loadExportPlaylists(showErr = false) {
 function downloadSelectedPlaylistCsv() {
   const plat = document.getElementById('exportPlatformSelect').value;
   const pid = document.getElementById('exportPlaylistSelect').value;
+  const fmt = (document.getElementById('exportFormatSelect')?.value || 'csv').toLowerCase();
   if (!pid) {
     showAlert('exportAlert', 'error', '请先选择一个要导出的歌单！');
     return;
   }
-  window.open(`/api/platforms/${plat}/playlist/${encodeURIComponent(pid)}/export-csv`, '_blank');
+  window.open(`/api/platforms/${plat}/playlist/${encodeURIComponent(pid)}/export-${fmt}`, '_blank');
 }
 
 async function exportUrlPlaylistCsv() {
   const urlVal = document.getElementById('exportUrlInput').value.trim();
+  const fmt = (document.getElementById('exportFormatSelect')?.value || 'csv').toLowerCase();
   if (!urlVal) {
     showAlert('exportAlert', 'error', '请输入公开歌单分享链接！');
     return;
   }
   const btn = document.getElementById('exportUrlBtn');
   btn.disabled = true;
-  showAlert('exportAlert', 'info', '⏳ 正在拉取歌单曲目并生成 CSV...');
+  showAlert('exportAlert', 'info', `⏳ 正在拉取歌单曲目并生成 ${fmt.toUpperCase()}...`);
   try {
     const res = await fetch('/api/import/url', {
       method: 'POST',
@@ -1618,8 +1842,8 @@ async function exportUrlPlaylistCsv() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || '读取失败');
-    await triggerCsvDownload(data.playlist_name || 'Exported_Playlist', data.tracks);
-    showAlert('exportAlert', 'success', `✅ 已成功导出「${data.playlist_name}」（共 ${data.count} 首）！`);
+    await triggerFormatDownload(fmt, data.playlist_name || 'Exported_Playlist', data.tracks);
+    showAlert('exportAlert', 'success', `✅ 已成功导出「${data.playlist_name}」为 .${fmt}（共 ${data.count} 首）！`);
   } catch (err) {
     showAlert('exportAlert', 'error', '❌ ' + err.message);
   } finally {
@@ -1628,8 +1852,13 @@ async function exportUrlPlaylistCsv() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Scheduled Incremental Sync & Migration History (View 4)
+// 7. Scheduled Sync (Append / Mirror / 2-Way), Push Alerts & History (View 4)
 // ---------------------------------------------------------------------------
+
+function onSyncModeChange() {
+  const mode = document.getElementById('syncModeSelect').value;
+  document.getElementById('syncMirrorGuardCol').style.display = mode === 'mirror' ? 'block' : 'none';
+}
 
 async function loadSyncSourcePlaylists() {
   const plat = document.getElementById('syncSrcPlat').value;
@@ -1647,14 +1876,14 @@ async function loadSyncSourcePlaylists() {
       sel.appendChild(opt);
     });
   } catch {
-    sel.innerHTML = `<option value="">请先连接 ${PLATFORM_LABELS[plat]}</option>`;
+    sel.innerHTML = `<option value="">请先连接 ${getPlatDisplay(plat)}</option>`;
   }
 }
 
 async function loadSyncTargetPlaylists() {
   const plat = document.getElementById('syncTgtPlat').value;
   const sel = document.getElementById('syncTgtPlaylist');
-  sel.innerHTML = '<option value="__LIKED__">❤️ 我喜欢的音乐 (Liked)</option>';
+  sel.innerHTML = '<option value="__LIKED__">❤️ 我喜欢的音乐 / Starred (Liked)</option>';
   try {
     const res = await fetch(`/api/platforms/${plat}/playlists?include_liked=false`);
     const data = await res.json();
@@ -1681,21 +1910,30 @@ async function createSyncTask() {
   const tgtVal = tgtSel.value;
   const tgtName = tgtSel.options[tgtSel.selectedIndex]?.text || '';
 
+  const syncMode = document.getElementById('syncModeSelect').value || 'append';
+  const maxRemoveRatio = parseFloat(document.getElementById('syncMaxRemoveRatio').value) || 0.3;
+
   if (!srcPid) {
     showAlert('syncAlert', 'error', '请先选择有效的源平台歌单！');
     return;
   }
 
   const isLiked = tgtVal === '__LIKED__';
+  if (syncMode === 'mirror' && isLiked) {
+    showAlert('syncAlert', 'error', '🪞 镜像同步涉及移除曲目，仅支持同步至具体的自建歌单（不支持直接镜像清空「我喜欢的音乐」）。');
+    return;
+  }
+
   const nameInput = document.getElementById('syncRuleName').value.trim();
   const interval = parseInt(document.getElementById('syncIntervalSelect').value, 10) || 120;
+  const arrow = syncMode === 'two_way' ? '⇄' : '→';
 
   try {
     const res = await fetch('/api/sync/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: nameInput || `${PLATFORM_LABELS[srcPlat]} → ${PLATFORM_LABELS[tgtPlat]}`,
+        name: nameInput || `${getPlatDisplay(srcPlat)} ${arrow} ${getPlatDisplay(tgtPlat)}`,
         source_platform: srcPlat,
         source_playlist_id: srcPid,
         source_playlist_name: srcName,
@@ -1703,13 +1941,15 @@ async function createSyncTask() {
         target_mode: isLiked ? 'liked_songs' : 'existing_playlist',
         target_playlist_id: isLiked ? null : tgtVal,
         target_playlist_name: tgtName,
+        sync_mode: syncMode,
+        max_remove_ratio: maxRemoveRatio,
         interval_minutes: interval,
         enabled: true,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || '创建失败');
-    showAlert('syncAlert', 'success', '✅ 定时增量同步规则已添加！点击「▶ 立即同步」即可执行首次增量扫描。');
+    showAlert('syncAlert', 'success', '✅ 定时同步规则已添加！点击「▶ 立即同步」即可执行首次扫描。');
     loadSyncTasks();
   } catch (err) {
     showAlert('syncAlert', 'error', '❌ ' + err.message);
@@ -1727,32 +1967,42 @@ async function loadSyncTasks() {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无定时同步规则</td></tr>';
       return;
     }
-    tasks.forEach(t => {
+    tasks.forEach(task => {
       const tr = document.createElement('tr');
-      const statusBadge = t.is_running_now || t.last_status === 'running'
+      const statusBadge = task.is_running_now || task.last_status === 'running'
         ? '<span class="pill pill-info">⏳ 同步中</span>'
-        : t.last_status === 'error'
-          ? '<span class="pill pill-fail">异常</span>'
-          : `<span class="pill ${t.enabled ? 'pill-ok' : 'pill-muted'}">${t.enabled ? '运行中' : '已暂停'}</span>`;
+        : task.last_status === 'error'
+          ? '<span class="pill pill-fail">异常/熔断</span>'
+          : `<span class="pill ${task.enabled ? 'pill-ok' : 'pill-muted'}">${task.enabled ? '守护中' : '已暂停'}</span>`;
+
+      const mode = task.sync_mode || 'append';
+      const modeBadge = mode === 'two_way'
+        ? '<span class="pill pill-info">⇄ 双向合并</span>'
+        : mode === 'mirror'
+          ? `<span class="pill pill-warn">🪞 镜像 (≤${Math.round((task.max_remove_ratio || 0.3) * 100)}% 熔断)</span>`
+          : '<span class="pill pill-ok">➕ 增量追加</span>';
+      const dirArrow = mode === 'two_way' ? '⇄' : '→';
+
       tr.innerHTML = `
         <td>
-          <div style="font-weight: 600;">${escapeHtml(t.name)}</div>
-          <div style="font-size: 11.5px; color: var(--text-muted);">已记录 ${t.known_tracks_count || 0} 首 · 累计同步 ${t.total_synced_count || 0} 首</div>
+          <div style="font-weight: 600;">${escapeHtml(task.name)}</div>
+          <div style="font-size: 11.5px; color: var(--text-muted);">已记录 ${task.known_tracks_count || 0} 首 · 累计新增 ${task.total_synced_count || 0} 首${task.total_removed_count ? ` · 移除 ${task.total_removed_count} 首` : ''}</div>
         </td>
         <td style="font-size: 12.5px;">
-          <div>${escapeHtml(PLATFORM_LABELS[t.source_platform] || t.source_platform)}: ${escapeHtml(t.source_playlist_name)}</div>
-          <div style="color: var(--text-muted);">→ ${escapeHtml(PLATFORM_LABELS[t.target_platform] || t.target_platform)}: ${escapeHtml(t.target_playlist_name)}</div>
+          <div style="margin-bottom: 3px;">${modeBadge}</div>
+          <div>${escapeHtml(getPlatDisplay(task.source_platform))}: ${escapeHtml(task.source_playlist_name)}</div>
+          <div style="color: var(--text-muted);">${dirArrow} ${escapeHtml(getPlatDisplay(task.target_platform))}: ${escapeHtml(task.target_playlist_name)}</div>
         </td>
-        <td style="font-size: 12.5px;">每 ${t.interval_minutes} 分钟<div style="margin-top:3px;">${statusBadge}</div></td>
+        <td style="font-size: 12.5px;">每 ${task.interval_minutes} 分钟<div style="margin-top:3px;">${statusBadge}</div></td>
         <td style="font-size: 12px; color: var(--text-muted);">
-          <div>${escapeHtml(t.last_message || '-')}</div>
-          ${t.last_run_at ? `<div style="margin-top:2px;">上次: ${escapeHtml(t.last_run_at)}</div>` : ''}
+          <div>${escapeHtml(task.last_message || '-')}</div>
+          ${task.last_run_at ? `<div style="margin-top:2px;">上次: ${escapeHtml(task.last_run_at)}</div>` : ''}
         </td>
         <td>
           <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-            <button class="btn-mini" onclick="runSyncTaskNow('${t.id}')">▶ 立即同步</button>
-            <button class="btn-mini" onclick="toggleSyncTask('${t.id}', ${!t.enabled})">${t.enabled ? '⏸ 暂停' : '启用'}</button>
-            <button class="btn-mini" onclick="deleteSyncTask('${t.id}')">🗑️</button>
+            <button class="btn-mini" onclick="runSyncTaskNow('${task.id}')">▶ 立即同步</button>
+            <button class="btn-mini" onclick="toggleSyncTask('${task.id}', ${!task.enabled})">${task.enabled ? '⏸ 暂停' : '启用'}</button>
+            <button class="btn-mini" onclick="deleteSyncTask('${task.id}')">🗑️</button>
           </div>
         </td>
       `;
@@ -1760,6 +2010,71 @@ async function loadSyncTasks() {
     });
   } catch (err) {
     console.error(err);
+  }
+}
+
+async function loadNotificationConfig() {
+  try {
+    const res = await fetch('/api/notifications/config');
+    const cfg = await res.json();
+    if (!res.ok) return;
+    document.getElementById('notifEnabledCheckbox').checked = !!cfg.enabled;
+    document.getElementById('notifOnErrorCheckbox').checked = cfg.notify_on_sync_error !== false;
+    document.getElementById('notifOnSuccessCheckbox').checked = cfg.notify_on_sync_success !== false;
+    document.getElementById('notifWebhookInput').value = cfg.webhook_url || '';
+    document.getElementById('notifBarkInput').value = cfg.bark_url || '';
+    document.getElementById('notifTgTokenInput').value = cfg.telegram_bot_token || '';
+    document.getElementById('notifTgChatInput').value = cfg.telegram_chat_id || '';
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function saveNotificationConfig() {
+  hideAlert('notifAlert');
+  const btn = document.getElementById('saveNotifBtn');
+  btn.disabled = true;
+  try {
+    const payload = {
+      enabled: document.getElementById('notifEnabledCheckbox').checked,
+      notify_on_sync_error: document.getElementById('notifOnErrorCheckbox').checked,
+      notify_on_sync_success: document.getElementById('notifOnSuccessCheckbox').checked,
+      webhook_url: document.getElementById('notifWebhookInput').value.trim(),
+      bark_url: document.getElementById('notifBarkInput').value.trim(),
+      telegram_bot_token: document.getElementById('notifTgTokenInput').value.trim(),
+      telegram_chat_id: document.getElementById('notifTgChatInput').value.trim(),
+    };
+    const res = await fetch('/api/notifications/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '保存失败');
+    await loadNotificationConfig();
+    showAlert('notifAlert', 'success', '✅ 消息推送通知配置已保存！');
+  } catch (err) {
+    showAlert('notifAlert', 'error', '❌ ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function sendTestNotification() {
+  hideAlert('notifAlert');
+  const btn = document.getElementById('testNotifBtn');
+  btn.disabled = true;
+  try {
+    // Save current inputs first so user can click "Send Test" right after pasting URL
+    await saveNotificationConfig();
+    const res = await fetch('/api/notifications/test', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '测试推送失败');
+    showAlert('notifAlert', 'success', `📨 测试通知已成功送达通道：${(data.channels || []).join(', ')}！`);
+  } catch (err) {
+    showAlert('notifAlert', 'error', '❌ ' + err.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 

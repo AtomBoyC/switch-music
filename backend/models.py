@@ -22,6 +22,22 @@ class SpotifyConfigPayload(BaseModel):
     redirect_uri: str = DEFAULT_SPOTIFY_REDIRECT_URI
 
 
+class SubsonicConfigPayload(BaseModel):
+    server_url: str
+    username: str
+    password: str = ""
+
+
+class NotificationConfigPayload(BaseModel):
+    enabled: bool = True
+    notify_on_sync_error: bool = True
+    notify_on_sync_success: bool = True
+    webhook_url: str = ""
+    bark_url: str = ""
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
+
 class UrlImportPayload(BaseModel):
     platform: str = "auto"  # "auto" | "netease" | "qqmusic" | "kugou" | "applemusic" | "ytm" | "spotify"
     url_or_id: str
@@ -115,6 +131,8 @@ class SyncTaskCreateRequest(BaseModel):
     target_mode: str = "existing_playlist"  # "existing_playlist" | "liked_songs"
     target_playlist_id: Optional[str] = None
     target_playlist_name: str = ""
+    sync_mode: str = "append"  # "append" | "mirror" | "two_way"
+    max_remove_ratio: float = 0.3
     interval_minutes: int = 120
     enabled: bool = True
 

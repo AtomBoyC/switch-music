@@ -157,12 +157,15 @@ class TestSwitchMusicCore(unittest.TestCase):
                  patch.object(app_module.netease_provider, "get_status", return_value={"connected": False}), \
                  patch.object(app_module.qqmusic_provider, "get_status", return_value={"connected": False}), \
                  patch.object(app_module.kugou_provider, "get_status", return_value={"connected": False}), \
-                 patch.object(app_module.applemusic_provider, "get_status", return_value={"connected": False}):
+                 patch.object(app_module.applemusic_provider, "get_status", return_value={"connected": False}), \
+                 patch.object(app_module.subsonic_provider, "get_status", return_value={"connected": False}), \
+                 patch.object(app_module.qishui_provider, "get_status", return_value={"connected": False}):
                 r_st = client.get("/api/platforms/status")
                 self.assertEqual(r_st.status_code, 200)
                 plats = r_st.json()["platforms"]
                 self.assertEqual(
-                    set(plats.keys()), {"ytm", "spotify", "netease", "qqmusic", "kugou", "applemusic"}
+                    set(plats.keys()),
+                    {"ytm", "spotify", "netease", "qqmusic", "kugou", "applemusic", "subsonic", "qishui"},
                 )
 
             r_txt = client.post("/api/import/text", json={"text": "晴天 - 周杰伦\n七里香 - 周杰伦", "playlist_name": "测试"})
@@ -319,40 +322,45 @@ class TestSwitchMusicCore(unittest.TestCase):
         from backend.config import STATIC_DIR
 
         html_path = STATIC_DIR / "index.html"
+        i18n_path = STATIC_DIR / "js" / "i18n.js"
         js_path = STATIC_DIR / "js" / "app.js"
         css_path = STATIC_DIR / "css" / "styles.css"
 
         self.assertTrue(html_path.exists())
+        self.assertTrue(i18n_path.exists())
         self.assertTrue(js_path.exists())
         self.assertTrue(css_path.exists())
 
         jsc_bin = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
         if os.path.exists(jsc_bin):
-            proc = subprocess.run(
-                [
-                    jsc_bin,
-                    "-e",
-                    f"new Function(readFile('{js_path.as_posix()}')); print('JS_SYNTAX_OK');",
-                ],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(proc.returncode, 0, f"JS syntax error: {proc.stdout} {proc.stderr}")
-            self.assertIn("JS_SYNTAX_OK", proc.stdout)
+            for script_file in (i18n_path, js_path):
+                proc = subprocess.run(
+                    [
+                        jsc_bin,
+                        "-e",
+                        f"new Function(readFile('{script_file.as_posix()}')); print('JS_SYNTAX_OK');",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(proc.returncode, 0, f"JS syntax error in {script_file}: {proc.stdout} {proc.stderr}")
+                self.assertIn("JS_SYNTAX_OK", proc.stdout)
 
         html_text = html_path.read_text(encoding="utf-8")
+        i18n_text = i18n_path.read_text(encoding="utf-8")
         js_text = js_path.read_text(encoding="utf-8")
+        combined_js = i18n_text + "\n" + js_text
 
-        # 1. Every literal getElementById('xyz') in app.js must exist in index.html or dynamic JS templates
+        # 1. Every literal getElementById('xyz') in JS must exist in index.html or dynamic JS templates
         html_ids = set(re.findall(r'\bid=["\']([^"\']+)["\']', html_text))
-        dynamic_js_ids = set(re.findall(r'\bid=["\']([^"\']+)["\']', js_text))
+        dynamic_js_ids = set(re.findall(r'\bid=["\']([^"\']+)["\']', combined_js))
         all_known_ids = html_ids | dynamic_js_ids
-        referenced_ids = set(re.findall(r"getElementById\(\s*['\"]([^'\"]+)['\"]\s*\)", js_text))
+        referenced_ids = set(re.findall(r"getElementById\(\s*['\"]([^'\"]+)['\"]\s*\)", combined_js))
         missing_ids = referenced_ids - all_known_ids
-        self.assertEqual(missing_ids, set(), f"Missing DOM IDs referenced in app.js: {missing_ids}")
+        self.assertEqual(missing_ids, set(), f"Missing DOM IDs referenced in JS: {missing_ids}")
 
-        # 2. Every inline handler function in index.html must exist in app.js
-        js_funcs = set(re.findall(r"(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(", js_text))
+        # 2. Every inline handler function in index.html must exist in JS
+        js_funcs = set(re.findall(r"(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(", combined_js))
         inline_calls = set(
             re.findall(r'\bon(?:click|change|input|keydown|submit)=["\']([A-Za-z0-9_]+)\s*\(', html_text)
         )
@@ -643,6 +651,506 @@ class TestKugouAndAppleMusic(unittest.TestCase):
         self.assertEqual(p("pl.u-AbCd123"), ("playlist", "pl.u-AbCd123", ""))
         with self.assertRaises(ValueError):
             p("https://example.com/nothing")
+
+
+class TestV23EcosystemUpgrade(unittest.TestCase):
+    """v2.3: Subsonic/Navidrome, Qishui Music, M3U8/JSON IO, Mirror/2-Way Sync, Push Notifier & Cache Inspector."""
+
+    def test_subsonic_provider_auth_playlists_search_and_dedupe(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from backend.providers.subsonic import SubsonicProvider, make_subsonic_auth_params, normalize_subsonic_url
+
+        self.assertEqual(normalize_subsonic_url("http://192.168.1.10:4533/rest/"), "http://192.168.1.10:4533")
+        with self.assertRaises(ValueError):
+            normalize_subsonic_url("ftp://bad-host")
+
+        params = make_subsonic_auth_params("alice", "s3cr3t", salt="abc123")
+        self.assertEqual(params["u"], "alice")
+        self.assertEqual(params["s"], "abc123")
+        self.assertEqual(params["t"], hashlib.md5(b"s3cr3tabc123").hexdigest())
+
+        prov = SubsonicProvider()
+        recorded_calls = []
+
+        def fake_request(endpoint, params=None, creds=None, method="GET"):
+            recorded_calls.append((endpoint, params, method))
+            if endpoint == "ping":
+                return {"status": "ok", "type": "navidrome", "serverVersion": "0.53.3"}
+            if endpoint == "getPlaylists":
+                return {
+                    "status": "ok",
+                    "playlists": {
+                        "playlist": [
+                            {"id": "pl_sub_1", "name": "Hi-Res Jazz", "songCount": 2, "owner": "alice"},
+                            {"id": "pl_other", "name": "Readonly Shared", "songCount": 5, "owner": "bob"},
+                        ]
+                    },
+                }
+            if endpoint == "getPlaylist":
+                return {
+                    "status": "ok",
+                    "playlist": {
+                        "id": "pl_sub_1",
+                        "name": "Hi-Res Jazz",
+                        "entry": [
+                            {
+                                "id": "tr_1",
+                                "title": "Blue in Green",
+                                "artists": [{"name": "Miles Davis"}, {"name": "Bill Evans"}],
+                                "album": "Kind of Blue",
+                                "duration": 337,
+                                "isrc": ["USSM15900113"],
+                                "path": "Jazz/Miles Davis/03 - Blue in Green.flac",
+                            },
+                            {
+                                "id": "tr_1",
+                                "title": "Blue in Green",
+                                "artist": "Miles Davis",
+                                "album": "Kind of Blue",
+                                "duration": 337,
+                                "path": "Jazz/Miles Davis/03 - Blue in Green.flac",
+                            },
+                        ],
+                    },
+                }
+            if endpoint == "search3":
+                return {
+                    "status": "ok",
+                    "searchResult3": {
+                        "song": [
+                            {
+                                "id": "tr_99",
+                                "title": "晴天",
+                                "artist": "周杰伦",
+                                "album": "叶惠美",
+                                "duration": 269,
+                            }
+                        ]
+                    },
+                }
+            if endpoint == "createPlaylist":
+                return {"status": "ok", "playlist": {"id": "pl_new_7"}}
+            if endpoint in ("updatePlaylist", "star"):
+                return {"status": "ok"}
+            raise AssertionError(f"Unexpected endpoint {endpoint}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            auth_file = Path(tmpdir) / "subsonic_auth.json"
+            with patch("backend.providers.subsonic.SUBSONIC_AUTH_FILE", auth_file), \
+                 patch.object(prov, "_request", side_effect=fake_request):
+                saved = prov.save_config("http://10.0.0.5:4533/", "alice", "my_pass")
+                self.assertTrue(saved["connected"])
+                self.assertIn("navidrome", saved["user_name"])
+
+                st = prov.get_status()
+                self.assertTrue(st["connected"])
+                self.assertTrue(st["has_password"])
+                self.assertNotIn("my_pass", str(st))
+
+                pls = prov.get_user_playlists()
+                self.assertEqual(pls[0]["id"], "STARRED")
+                self.assertEqual(pls[1]["id"], "pl_sub_1")
+                self.assertTrue(pls[1]["editable"])
+                self.assertFalse(pls[2]["editable"])
+
+                pl_data = prov.get_playlist_tracks("pl_sub_1")
+                self.assertEqual(pl_data["count"], 2)
+                self.assertEqual(pl_data["tracks"][0]["isrc"], "USSM15900113")
+                self.assertEqual(pl_data["tracks"][0]["artist"], "Miles Davis, Bill Evans")
+                self.assertEqual(pl_data["tracks"][0]["extra"]["path"], "Jazz/Miles Davis/03 - Blue in Green.flac")
+
+                cands = prov.search_candidates("晴天 周杰伦")
+                self.assertEqual(cands[0]["track_id"], "tr_99")
+
+                new_pid = prov.create_playlist("New NAS List", "desc", "PRIVATE")
+                self.assertEqual(new_pid, "pl_new_7")
+
+                added = prov.add_tracks("pl_new_7", "new_playlist", cands, set())
+                self.assertEqual(added, 1)
+
+                removed = prov.remove_playlist_duplicates(
+                    "pl_sub_1",
+                    [{"item_id": "tr_1", "extra": {"index": 1, "song_id": "tr_1"}}],
+                )
+                self.assertEqual(removed, 1)
+                update_calls = [c for c in recorded_calls if c[0] == "updatePlaylist"]
+                self.assertTrue(any(("songIndexToRemove", "1") in list(c[1]) for c in update_calls))
+
+    def test_qishui_url_detection_and_html_parsers(self):
+        from backend.providers.qishui import parse_qishui_html
+
+        self.assertEqual(detect_platform_from_url("来看看歌单 https://qishui.douyin.com/s/iRNB7xYz/ 吧"), "qishui")
+        self.assertEqual(
+            detect_platform_from_url("https://music.douyin.com/qishui/share/playlist?playlist_id=7291827364512345678"),
+            "qishui",
+        )
+
+        # Case 1: SSR _ROUTER_DATA JSON
+        ssr_html = """
+        <html><head><title>汽水音乐</title></head><body>
+        <script>window._ROUTER_DATA = {"loaderData":{"playlist_page":{"playlistInfo":{"name":"深夜电台精选"},"trackList":[{"id":"qs_1","name":"兰亭序","artists":[{"name":"周杰伦"}],"album":{"name":"魔杰座"},"duration":253000},{"id":"qs_2","name":"稻香","artistName":"周杰伦","albumName":"魔杰座","duration":223}]}}};</script>
+        </body></html>
+        """
+        res_ssr = parse_qishui_html(ssr_html)
+        self.assertEqual(res_ssr["playlist_name"], "深夜电台精选")
+        self.assertEqual(res_ssr["count"], 2)
+        self.assertEqual(res_ssr["tracks"][0]["title"], "兰亭序")
+        self.assertEqual(res_ssr["tracks"][0]["artist"], "周杰伦")
+        self.assertEqual(res_ssr["tracks"][0]["duration_ms"], 253000)
+        self.assertEqual(res_ssr["tracks"][1]["duration_ms"], 223000)
+
+        # Case 2: Fallback HTML <p> pair structure ("Title" + "Artist • Album")
+        fallback_html = """
+        <html><head><title>开车兜风歌单 - 汽水音乐</title></head><body>
+        <h1><p>开车兜风歌单</p></h1>
+        <div><p>晴天</p><p>周杰伦 • 叶惠美</p></div>
+        <div><p>Blinding Lights</p><p>The Weeknd • After Hours</p></div>
+        </body></html>
+        """
+        res_fb = parse_qishui_html(fallback_html)
+        self.assertEqual(res_fb["playlist_name"], "开车兜风歌单")
+        self.assertEqual(res_fb["count"], 2)
+        self.assertEqual(res_fb["tracks"][0]["album"], "叶惠美")
+        self.assertEqual(res_fb["tracks"][1]["artist"], "The Weeknd")
+
+    def test_m3u8_and_json_import_export_endpoints(self):
+        m3u_content = (
+            "#EXTM3U\n"
+            "#PLAYLIST:NAS 无损精选\n"
+            "#EXTINF:269,周杰伦 - 晴天\n"
+            "Pop/JayChou/晴天.flac\n"
+            "#EXTINF:200,Taylor Swift - Lover\n"
+            "Pop/Taylor/Lover.flac\n"
+        )
+        with _client() as client:
+            r_up = client.post(
+                "/api/import/csv",
+                files=[("files", ("nas_favs.m3u8", m3u_content.encode("utf-8"), "audio/x-mpegurl"))],
+            )
+            self.assertEqual(r_up.status_code, 200)
+            up_data = r_up.json()
+            self.assertEqual(up_data["playlist_name"], "NAS 无损精选")
+            self.assertEqual(up_data["count"], 2)
+            self.assertEqual(up_data["tracks"][0]["title"], "晴天")
+            self.assertEqual(up_data["tracks"][0]["artist"], "周杰伦")
+            self.assertEqual(up_data["tracks"][0]["duration_ms"], 269000)
+            self.assertEqual(up_data["tracks"][0]["extra"]["path"], "Pop/JayChou/晴天.flac")
+
+            # Export back to M3U8 preserving relative NAS path
+            r_m3u = client.post(
+                "/api/export/m3u8",
+                json={"playlist_name": "NAS 无损精选", "tracks": up_data["tracks"]},
+            )
+            self.assertEqual(r_m3u.status_code, 200)
+            self.assertIn("#EXTM3U", r_m3u.text)
+            self.assertIn("#PLAYLIST:NAS 无损精选", r_m3u.text)
+            self.assertIn("Pop/JayChou/晴天.flac", r_m3u.text)
+
+            # Export portable JSON and re-import via /api/import/csv
+            r_json = client.post(
+                "/api/export/json",
+                json={"playlist_name": "JSON 备份测试", "tracks": up_data["tracks"]},
+            )
+            self.assertEqual(r_json.status_code, 200)
+            r_reimport = client.post(
+                "/api/import/csv",
+                files=[("files", ("backup.json", r_json.content, "application/json"))],
+            )
+            self.assertEqual(r_reimport.status_code, 200)
+            self.assertEqual(r_reimport.json()["count"], 2)
+
+    def test_sync_mirror_safety_breakers_and_two_way_echo_free_merge(self):
+        import tempfile
+        from pathlib import Path
+        from backend.models import SyncTaskCreateRequest
+        from backend.providers.base import PlatformProvider
+        from backend.sync_scheduler import IncrementalSyncScheduler
+
+        class InMemoryPlatform(PlatformProvider):
+            def __init__(self, pid: str, name: str, initial_tracks: list):
+                self.platform_id = pid
+                self.platform_name = name
+                # Each entry: (id, title, artist)
+                self.store = list(initial_tracks)
+
+            def get_status(self):
+                return {"platform": self.platform_id, "connected": True}
+
+            def get_user_playlists(self):
+                return [{"id": "pl_1", "name": "Test Playlist", "count": len(self.store), "editable": True}]
+
+            def get_playlist_tracks(self, playlist_id: str):
+                return {
+                    "playlist_name": "Test Playlist",
+                    "count": len(self.store),
+                    "tracks": [
+                        {
+                            "title": title,
+                            "artist": artist,
+                            "album": "",
+                            "duration_ms": 200000,
+                            "source_platform": self.platform_id,
+                            "source_id": tid,
+                        }
+                        for tid, title, artist in self.store
+                    ],
+                }
+
+            def get_existing_track_ids(self, playlist_id: str, target_mode: str = "existing_playlist"):
+                return {tid for tid, _, _ in self.store}
+
+            def search_candidates(self, query: str, limit: int = 6):
+                q_low = query.lower()
+                # Deterministic catalog mapping across platforms
+                catalog = [
+                    ("cat_1", "Song One", "Artist A"),
+                    ("cat_2", "Song Two", "Artist B"),
+                    ("cat_3", "Song Three", "Artist C"),
+                    ("cat_4", "Song Four", "Artist D"),
+                    ("cat_5", "Song Five", "Artist E"),
+                ]
+                out = []
+                for cid, title, artist in catalog:
+                    if title.lower() in q_low:
+                        out.append(
+                            {
+                                "platform": self.platform_id,
+                                "track_id": f"{self.platform_id}_{cid}",
+                                "title": title,
+                                "artist": artist,
+                                "album": "",
+                                "duration_seconds": 200,
+                                "resultType": "song",
+                            }
+                        )
+                return out
+
+            def add_tracks(self, playlist_id, target_mode, candidates, seen_ids, skip_duplicates=True):
+                added = 0
+                for c in candidates:
+                    tid = c["track_id"]
+                    if skip_duplicates and tid in seen_ids:
+                        continue
+                    seen_ids.add(tid)
+                    self.store.append((tid, c["title"], c["artist"]))
+                    added += 1
+                return added
+
+            def get_dedupe_raw_items(self, playlist_id: str):
+                items = [
+                    {
+                        "position": idx + 1,
+                        "item_id": tid,
+                        "videoId": tid,
+                        "setVideoId": f"sv_{idx}",
+                        "can_remove": True,
+                        "title": title,
+                        "artist": artist,
+                        "extra": {"idx": idx},
+                    }
+                    for idx, (tid, title, artist) in enumerate(self.store)
+                ]
+                return "Test Playlist", items
+
+            def remove_playlist_duplicates(self, playlist_id: str, items: list):
+                remove_ids = {it["item_id"] for it in items}
+                before = len(self.store)
+                self.store = [row for row in self.store if row[0] not in remove_ids]
+                return before - len(self.store)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            src_p = InMemoryPlatform(
+                "spotify",
+                "Spotify",
+                [
+                    ("sp_1", "Song One", "Artist A"),
+                    ("sp_2", "Song Two", "Artist B"),
+                    ("sp_3", "Song Three", "Artist C"),
+                    ("sp_4", "Song Four", "Artist D"),
+                ],
+            )
+            tgt_p = InMemoryPlatform("ytm", "YouTube Music", [])
+            prov_map = {"spotify": src_p, "ytm": tgt_p}
+
+            with patch("backend.sync_scheduler.SYNC_TASKS_FILE", tmp_path / "sync.json"), \
+                 patch("backend.matcher.MATCH_CACHE_FILE", tmp_path / "cache.json"), \
+                 patch("backend.sync_scheduler.get_provider", side_effect=lambda pid: prov_map[pid]), \
+                 patch("backend.sync_scheduler.notifier.send") as mock_notify:
+                sched = IncrementalSyncScheduler()
+
+                # --- Part A: Mirror Sync + Safety Breakers ---
+                t_mirror = sched.create_task(
+                    SyncTaskCreateRequest(
+                        name="Mirror Test",
+                        source_platform="spotify",
+                        source_playlist_id="pl_1",
+                        target_platform="ytm",
+                        target_mode="existing_playlist",
+                        target_playlist_id="pl_1",
+                        sync_mode="mirror",
+                        max_remove_ratio=0.35,
+                    )
+                )
+                mid = t_mirror["id"]
+
+                # Run 1: Syncs all 4 tracks into target
+                sched._execute_task(mid)
+                self.assertEqual(len(tgt_p.store), 4)
+
+                # Remove 1 of 4 tracks (25% <= 35% max_remove_ratio) -> allowed!
+                src_p.store.pop(0)  # removes Song One
+                sched._execute_task(mid)
+                self.assertEqual(len(tgt_p.store), 3)
+                self.assertNotIn("ytm_cat_1", {x[0] for x in tgt_p.store})
+
+                # Remove 2 of remaining 3 tracks (66.7% > 35% max_remove_ratio) -> CIRCUIT BREAKER TRIPS!
+                saved_store = list(src_p.store)
+                src_p.store = [saved_store[0]]
+                sched._execute_task(mid)
+                self.assertEqual(len(tgt_p.store), 3)  # Nothing deleted!
+                st_after_trip = [x for x in sched.list_tasks() if x["id"] == mid][0]
+                self.assertEqual(st_after_trip["last_status"], "error")
+                self.assertIn("防误删熔断", st_after_trip["last_message"])
+
+                # Empty snapshot (0 tracks) -> EMPTY-SNAPSHOT GUARD TRIPS!
+                src_p.store = []
+                sched._execute_task(mid)
+                self.assertEqual(len(tgt_p.store), 3)  # Still untouched!
+                self.assertTrue(mock_notify.called)
+
+                # --- Part B: Two-Way Merge (Echo-Free) ---
+                plat_a = InMemoryPlatform("spotify", "Spotify", [("sp_1", "Song One", "Artist A")])
+                plat_b = InMemoryPlatform("ytm", "YouTube Music", [("ytm_2", "Song Two", "Artist B")])
+                prov_map["spotify"] = plat_a
+                prov_map["ytm"] = plat_b
+
+                t_2way = sched.create_task(
+                    SyncTaskCreateRequest(
+                        name="2-Way Merge",
+                        source_platform="spotify",
+                        source_playlist_id="pl_1",
+                        target_platform="ytm",
+                        target_mode="existing_playlist",
+                        target_playlist_id="pl_1",
+                        sync_mode="two_way",
+                    )
+                )
+                wid = t_2way["id"]
+
+                # Tick 1: Song One goes to YTM, Song Two goes to Spotify
+                sched._execute_task(wid)
+                self.assertEqual({x[1] for x in plat_a.store}, {"Song One", "Song Two"})
+                self.assertEqual({x[1] for x in plat_b.store}, {"Song One", "Song Two"})
+
+                # Tick 2: Echo-free! Neither side should duplicate or re-add anything
+                sched._execute_task(wid)
+                self.assertEqual(len(plat_a.store), 2)
+                self.assertEqual(len(plat_b.store), 2)
+                st_2way = [x for x in sched.list_tasks() if x["id"] == wid][0]
+                self.assertEqual(st_2way["last_added_count"], 0)
+
+    def test_notifier_secret_masking_and_cache_inspector_endpoints(self):
+        import tempfile
+        from pathlib import Path
+        from backend.matcher import MatchCache
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            notif_file = tmp_path / "notif.json"
+            cache_file = tmp_path / "cache.json"
+            temp_cache = MatchCache()
+            temp_cache._data = {}
+
+            with patch("backend.notifier.NOTIFICATION_CONFIG_FILE", notif_file), \
+                 patch("backend.matcher.MATCH_CACHE_FILE", cache_file), \
+                 patch.object(app_module, "match_cache", temp_cache):
+                with _client() as client:
+                    # 1. Save notification config & verify secret masking
+                    r_save = client.post(
+                        "/api/notifications/config",
+                        json={
+                            "enabled": True,
+                            "notify_on_sync_error": True,
+                            "notify_on_sync_success": True,
+                            "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/secret123",
+                            "bark_url": "my_bark_device_key",
+                            "telegram_bot_token": "123456:ABCDEF",
+                            "telegram_chat_id": "998877",
+                        },
+                    )
+                    self.assertEqual(r_save.status_code, 200)
+                    pub = client.get("/api/notifications/config").json()
+                    self.assertEqual(pub["webhook_url"], "********")
+                    self.assertEqual(pub["bark_url"], "********")
+                    self.assertEqual(pub["telegram_bot_token"], "********")
+                    self.assertTrue(pub["has_webhook"])
+
+                    # Re-saving with masked "********" must preserve underlying real secrets!
+                    client.post(
+                        "/api/notifications/config",
+                        json={
+                            "enabled": True,
+                            "webhook_url": "********",
+                            "bark_url": "********",
+                            "telegram_bot_token": "********",
+                            "telegram_chat_id": "998877",
+                        },
+                    )
+                    raw_loaded = app_module.notifier.load_config()
+                    self.assertIn("secret123", raw_loaded["webhook_url"])
+                    self.assertEqual(raw_loaded["bark_url"], "https://api.day.app/my_bark_device_key")
+
+                    # Test push dispatch across all 3 channels
+                    posted_urls = []
+
+                    class DummyResp:
+                        status_code = 200
+
+                        def raise_for_status(self):
+                            return None
+
+                    class DummySession:
+                        def post(self, url, json=None, timeout=10):
+                            posted_urls.append((url, json))
+                            return DummyResp()
+
+                    with patch("backend.notifier.make_retry_session", return_value=DummySession()):
+                        r_test = client.post("/api/notifications/test")
+                        self.assertEqual(r_test.status_code, 200)
+                        self.assertEqual(set(r_test.json()["channels"]), {"webhook", "bark", "telegram"})
+                        self.assertEqual(len(posted_urls), 3)
+
+                    # 2. MatchCache Inspector list / filter / single-item delete
+                    tr1 = TrackItem(title="晴天", artist="周杰伦", album="叶惠美", isrc="TWK970300403", duration_ms=269000)
+                    tr2 = TrackItem(title="Lover", artist="Taylor Swift", duration_ms=221000)
+                    temp_cache.put(
+                        "ytm",
+                        tr1,
+                        {"track_id": "vid_1", "title": "晴天", "artist": "周杰伦", "score": 98, "confidence": "high"},
+                        flush_now=True,
+                    )
+                    temp_cache.put(
+                        "subsonic",
+                        tr2,
+                        {"track_id": "sub_2", "title": "Lover", "artist": "Taylor Swift", "score": 95, "confidence": "manual"},
+                        flush_now=True,
+                    )
+
+                    r_all = client.get("/api/cache/matches").json()
+                    self.assertEqual(r_all["total_cached"], 2)
+                    self.assertEqual(r_all["by_platform"], {"ytm": 1, "subsonic": 1})
+
+                    r_filtered = client.get("/api/cache/matches?platform=ytm&q=TWK970300403").json()
+                    self.assertEqual(r_filtered["filtered_count"], 1)
+                    key_to_del = r_filtered["entries"][0]["key"]
+
+                    r_del = client.delete("/api/cache/matches/item", params={"key": key_to_del})
+                    self.assertEqual(r_del.status_code, 200)
+                    self.assertTrue(r_del.json()["deleted"])
+                    self.assertEqual(client.get("/api/cache/matches").json()["total_cached"], 1)
 
 
 if __name__ == "__main__":

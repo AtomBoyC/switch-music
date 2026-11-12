@@ -31,7 +31,13 @@ from backend.config import (
     is_allowed_host,
     is_allowed_origin,
 )
-from backend.csv_io import export_tracks_to_csv_string, parse_csv_tracks, parse_plain_text_tracks
+from backend.csv_io import (
+    export_tracks_to_csv_string,
+    export_tracks_to_json_string,
+    export_tracks_to_m3u8_string,
+    parse_csv_tracks,
+    parse_plain_text_tracks,
+)
 from backend.deduplicator import analyze_playlist_duplicate_groups, deduplicate_source_tracks
 from backend.matcher import match_cache, score_candidate
 from backend.migration_engine import (
@@ -51,16 +57,19 @@ from backend.models import (
     ManualApplyMatchRequest,
     ManualSearchRequest,
     MigrationRequest,
+    NotificationConfigPayload,
     PreviewMatchRequest,
     RawAuthPayload,
     RemoveDuplicatesRequest,
     SpotifyConfigPayload,
+    SubsonicConfigPayload,
     SyncTaskCreateRequest,
     SyncTaskTogglePayload,
     TextImportPayload,
     UrlImportPayload,
     model_to_dict,
 )
+from backend.notifier import notifier
 from backend.providers import (
     PROVIDERS,
     applemusic_provider,
@@ -68,13 +77,15 @@ from backend.providers import (
     get_provider,
     kugou_provider,
     netease_provider,
+    qishui_provider,
     qqmusic_provider,
     spotify_provider,
+    subsonic_provider,
     ytm_provider,
 )
 from backend.sync_scheduler import sync_scheduler
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 
 @asynccontextmanager
@@ -204,6 +215,20 @@ def platform_save_cookie_auth(platform_id: str, payload: RawAuthPayload):
         raise HTTPException(status_code=400, detail=f"验证连接失败: {str(e)}")
 
 
+@app.post("/api/platforms/subsonic/config")
+def subsonic_save_config(payload: SubsonicConfigPayload):
+    try:
+        return subsonic_provider.save_config(
+            server_url=payload.server_url,
+            username=payload.username,
+            password=payload.password,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"连接 Navidrome / Subsonic 失败: {str(e)}")
+
+
 @app.post("/api/platforms/kugou/qrcode")
 def kugou_create_qrcode():
     try:
@@ -300,7 +325,7 @@ async def parse_uploaded_csv(files: List[UploadFile] = File(...)):
     if not all_tracks:
         raise HTTPException(
             status_code=400,
-            detail="未能从文件中解析出任何有效歌曲，请确认是否为有效的 CSV / TSV / JSON / 歌单文本文件。",
+            detail="未能从文件中解析出任何有效歌曲，请确认是否为有效的 CSV / TSV / JSON / M3U8 / 歌单文本文件。",
         )
 
     combined_name = " + ".join(names[:2]) if names else "Imported Playlist"
@@ -311,17 +336,24 @@ async def parse_uploaded_csv(files: List[UploadFile] = File(...)):
     }
 
 
-def _csv_download_response(csv_text: str, playlist_name: str) -> Response:
+def _file_download_response(content_text: str, playlist_name: str, ext: str, media_type: str) -> Response:
+    clean_ext = ext.lstrip(".")
     safe_ascii = re.sub(r"[^A-Za-z0-9._-]+", "_", playlist_name).strip("_") or "playlist"
-    utf8_quoted = urllib.parse.quote(f"{playlist_name}.csv")
+    utf8_quoted = urllib.parse.quote(f"{playlist_name}.{clean_ext}")
     headers = {
-        "Content-Disposition": f"attachment; filename=\"{safe_ascii}.csv\"; filename*=UTF-8''{utf8_quoted}"
+        "Content-Disposition": (
+            f"attachment; filename=\"{safe_ascii}.{clean_ext}\"; filename*=UTF-8''{utf8_quoted}"
+        )
     }
     return Response(
-        content=csv_text.encode("utf-8"),
-        media_type="text/csv; charset=utf-8",
+        content=content_text.encode("utf-8"),
+        media_type=media_type,
         headers=headers,
     )
+
+
+def _csv_download_response(csv_text: str, playlist_name: str) -> Response:
+    return _file_download_response(csv_text, playlist_name, "csv", "text/csv; charset=utf-8")
 
 
 @app.post("/api/export/csv")
@@ -330,6 +362,24 @@ def export_tracks_csv(payload: ExportCsvRequest):
         raise HTTPException(status_code=400, detail="没有可导出的歌曲数据。")
     csv_str = export_tracks_to_csv_string(payload.tracks)
     return _csv_download_response(csv_str, payload.playlist_name or "Switch_Music_Export")
+
+
+@app.post("/api/export/m3u8")
+def export_tracks_m3u8(payload: ExportCsvRequest):
+    if not payload.tracks:
+        raise HTTPException(status_code=400, detail="没有可导出的歌曲数据。")
+    pname = payload.playlist_name or "Switch_Music_Export"
+    m3u8_str = export_tracks_to_m3u8_string(payload.tracks, playlist_name=pname)
+    return _file_download_response(m3u8_str, pname, "m3u8", "audio/x-mpegurl; charset=utf-8")
+
+
+@app.post("/api/export/json")
+def export_tracks_json(payload: ExportCsvRequest):
+    if not payload.tracks:
+        raise HTTPException(status_code=400, detail="没有可导出的歌曲数据。")
+    pname = payload.playlist_name or "Switch_Music_Export"
+    json_str = export_tracks_to_json_string(payload.tracks, playlist_name=pname)
+    return _file_download_response(json_str, pname, "json", "application/json; charset=utf-8")
 
 
 @app.get("/api/platforms/{platform_id}/playlist/{playlist_id:path}/export-csv")
@@ -341,6 +391,30 @@ def export_platform_playlist_csv(platform_id: str, playlist_id: str):
         return _csv_download_response(csv_str, data.get("playlist_name") or f"{platform_id}_playlist")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"导出歌单 CSV 失败: {str(e)}")
+
+
+@app.get("/api/platforms/{platform_id}/playlist/{playlist_id:path}/export-m3u8")
+def export_platform_playlist_m3u8(platform_id: str, playlist_id: str):
+    try:
+        prov = get_provider(platform_id)
+        data = prov.get_playlist_tracks(playlist_id)
+        pname = data.get("playlist_name") or f"{platform_id}_playlist"
+        m3u8_str = export_tracks_to_m3u8_string(data.get("tracks") or [], playlist_name=pname)
+        return _file_download_response(m3u8_str, pname, "m3u8", "audio/x-mpegurl; charset=utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"导出歌单 M3U8 失败: {str(e)}")
+
+
+@app.get("/api/platforms/{platform_id}/playlist/{playlist_id:path}/export-json")
+def export_platform_playlist_json(platform_id: str, playlist_id: str):
+    try:
+        prov = get_provider(platform_id)
+        data = prov.get_playlist_tracks(playlist_id)
+        pname = data.get("playlist_name") or f"{platform_id}_playlist"
+        json_str = export_tracks_to_json_string(data.get("tracks") or [], playlist_name=pname)
+        return _file_download_response(json_str, pname, "json", "application/json; charset=utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"导出歌单 JSON 失败: {str(e)}")
 
 
 # ---------------------------------------------------------------------------
@@ -535,10 +609,57 @@ def api_manual_apply(req: ManualApplyMatchRequest):
         raise HTTPException(status_code=400, detail=f"手动补录曲目失败: {str(e)}")
 
 
+@app.get("/api/cache/matches")
+def api_list_match_cache(platform: str = "", q: str = "", limit: int = 200):
+    return match_cache.list_entries(platform=platform, query=q, limit=limit)
+
+
+@app.delete("/api/cache/matches/item")
+def api_delete_match_cache_item(key: str):
+    if not key:
+        raise HTTPException(status_code=400, detail="缺少缓存键 key。")
+    deleted = match_cache.delete_key(key)
+    return {"success": True, "deleted": deleted}
+
+
 @app.delete("/api/cache/matches")
 def api_clear_match_cache():
     cleared = match_cache.clear()
     return {"success": True, "cleared_count": cleared}
+
+
+# ---------------------------------------------------------------------------
+# Notification Push Config & Test
+# ---------------------------------------------------------------------------
+
+@app.get("/api/notifications/config")
+def api_get_notification_config():
+    return notifier.get_public_config()
+
+
+@app.post("/api/notifications/config")
+def api_save_notification_config(payload: NotificationConfigPayload):
+    try:
+        cfg = notifier.save_config(model_to_dict(payload))
+        return {"success": True, "config": cfg}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"保存推送配置失败: {str(e)}")
+
+
+@app.post("/api/notifications/test")
+def api_test_notification():
+    res = notifier.send(
+        title="Switch Music 测试通知 (Test)",
+        message="推送通道连接正常！定时同步完成或遇到登录态过期时将自动推送至此。",
+        event="test",
+        force=True,
+    )
+    if not res.get("sent"):
+        errs = "；".join(res.get("errors") or []) or "尚未配置任何有效的推送通道（Webhook / Bark / Telegram）。"
+        raise HTTPException(status_code=400, detail=f"测试推送未送达：{errs}")
+    return {"success": True, **res}
 
 
 # ---------------------------------------------------------------------------
