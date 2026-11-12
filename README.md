@@ -105,7 +105,7 @@ docker build -t switch-music .
 
 > 💡 NAS 上没有 https 时，可用 SSH 隧道 `ssh -L 8765:127.0.0.1:8765 你的NAS` 后在本机打开 `http://127.0.0.1:8765` 完成一次 Spotify 授权，令牌会保存在 `/data` 并自动续期。
 
-镜像由 GitHub Actions（`.github/workflows/docker.yml`）自动测试、构建并推送到 Docker Hub：推送到 `main` 发布 `latest`，打 `v*` 标签发布对应版本号。
+镜像由 GitHub Actions（`.github/workflows/docker.yml`）自动测试、构建并同时推送到 Docker Hub（`atomboyc/switch-music`）与 GitHub Container Registry（`ghcr.io/atomboyc/switch-music`，Docker Hub 拉取慢时可换用）：推送到 `main` 发布 `latest`；打 `v*` 标签（如 `git tag v2.3.0 && git push origin v2.3.0`）会发布对应版本号镜像，并自动创建 [GitHub Release](https://github.com/AtomBoyC/switch-music/releases)（更新说明取自 `.github/release-notes/<tag>.md` + 自动生成的提交列表，附带锁定版本的 `docker-compose.yml`）。
 
 ### 运行单元测试
 ```bash

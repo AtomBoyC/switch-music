@@ -21,6 +21,8 @@ Open **http://127.0.0.1:8765**.
 Or with Docker Compose: download [`docker-compose.yml`](https://github.com/AtomBoyC/switch-music/blob/main/docker-compose.yml) and run `docker compose up -d`.
 
 Images: `linux/amd64`, `linux/arm64` (Apple Silicon, Raspberry Pi, most NAS).
+Also available from GitHub Container Registry: `ghcr.io/atomboyc/switch-music` (same tags).
+Versioned tags (e.g. `:2.2.0`, `:2.2`) and release notes: https://github.com/AtomBoyC/switch-music/releases
 
 ## Environment variables
 
